@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>DETECTOR</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        :root {
+            --primary-color: #2196F3;
+            --secondary-color: #1976D2;
+            --background-color: #f5f5f5;
+            --text-color: #333;
+            --card-background: white;
+        }
+
+        body { 
+            margin: 0; 
+            padding: 0;
+            font-family: 'Segoe UI', Arial, sans-serif;
+            background: var(--background-color);
+            color: var(--text-color);
+        }
+
+        .container {
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: var(--primary-color);
+            color: white;
+            padding: 1rem;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.8rem;
+        }
+
+        .video-container {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            margin: 20px auto;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+
+        video {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+
+        .controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }
+
+        .control-card {
+            background: var(--card-background);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .control-card h3 {
+            margin: 0 0 10px 0;
+            font-size: 1rem;
+            color: var(--text-color);
+        }
+
+        select, button {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            background: white;
+            font-size: 0.9rem;
+        }
+
+        button {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        button:hover {
+            background: var(--secondary-color);
+        }
+
+        #status {
+            background: var(--card-background);
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stats {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+
+            h1 {
+                font-size: 1.5rem;
+            }
+
+            .video-container {
+                margin: 10px auto;
+            }
+
+            .controls {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Detecção de Termolatência em Tempo Real</h1>
+    </header>
+
+    <div class="container">
+        <div class="controls">
+            <div class="control-card">
+                <h3>Câmera</h3>
+                <select id="cameraSelect">
+                    <option value="">Carregando câmeras...</option>
+                </select>
+            </div>
+            <div class="control-card">
+                <h3>Qualidade</h3>
+                <select id="qualitySelect">
+                    <option value="high">Alta Qualidade</option>
+                    <option value="balanced" selected>Balanceado</option>
+                    <option value="performance">Alta Performance</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="video-container">
+            <video id="video" autoplay playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <div id="status">
+            <div>Status: <span id="statusText">Iniciando...</span></div>
+            <div class="stats">
+                <div class="stat-item">
+                    <div class="stat-value" id="fpsValue">0</div>
+                    <div>FPS</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="detectionCount">0</div>
+                    <div>Detecções</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-value" id="processingTime">0</div>
+                    <div>ms/frame</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('statusText');
+        const cameraSelect = document.getElementById('cameraSelect');
+        const qualitySelect = document.getElementById('qualitySelect');
+        const fpsValue = document.getElementById('fpsValue');
+        const detectionCount = document.getElementById('detectionCount');
+        const processingTime = document.getElementById('processingTime');
+        
+        let isProcessing = false;
+        let currentStream = null;
+        let frameCount = 0;
+        let lastFpsUpdate = Date.now();
+        let processingTimes = [];
+
+        // Cores para as classes com melhor visibilidade
+        const colors = [
+            '#2196F3', // Azul
+            '#4CAF50', // Verde
+            '#F44336', // Vermelho
+            '#FFC107', // Amarelo
+            '#9C27B0'  // Roxo
+        ];
+
+        // Buffer circular para suavização de FPS
+        class CircularBuffer {
+            constructor(size) {
+                this.size = size;
+                this.buffer = new Array(size).fill(0);
+                this.index = 0;
+            }
+
+            push(value) {
+                this.buffer[this.index] = value;
+                this.index = (this.index + 1) % this.size;
+            }
+
+            average() {
+                return this.buffer.reduce((a, b) => a + b, 0) / this.size;
+            }
+        }
+
+        const fpsBuffer = new CircularBuffer(30);
+        const processingBuffer = new CircularBuffer(30);
+
+        async function loadCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                
+                cameraSelect.innerHTML = videoDevices.map((device, index) =>
+                    `<option value="${device.deviceId}">Câmera ${index + 1}</option>`
+                ).join('');
+
+                if (videoDevices.length > 0) {
+                    await setupCamera(videoDevices[0].deviceId);
+                }
+
+                cameraSelect.onchange = (e) => setupCamera(e.target.value);
+            } catch (error) {
+                console.error('Erro ao carregar câmeras:', error);
+                statusText.textContent = 'Erro ao carregar câmeras: ' + error.message;
+            }
+        }
+
+        async function setupCamera(deviceId) {
+            try {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+
+                const constraints = {
+                    video: {
+                        deviceId: deviceId ? { exact: deviceId } : undefined,
+                        width: { ideal: 1280 },
+                        height: { ideal: 1280 },
+                        facingMode: deviceId ? undefined : 'environment'
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    statusText.textContent = 'Câmera pronta';
+                    if (!isProcessing) {
+                        processFrame();
+                    }
+                };
+            } catch (error) {
+                console.error('Erro ao acessar a câmera:', error);
+                statusText.textContent = 'Erro ao acessar a câmera: ' + error.message;
+            }
+        }
+
+        async function processFrame() {
+            if (!isProcessing) {
+                isProcessing = true;
+                const startTime = performance.now();
+
+                try {
+                    // Captura e processa o frame
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = 1280;
+                    tempCanvas.height = 1280;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    const scale = Math.min(1280 / video.videoWidth, 1280 / video.videoHeight);
+                    const width = video.videoWidth * scale;
+                    const height = video.videoHeight * scale;
+                    const x = (1280 - width) / 2;
+                    const y = (1280 - height) / 2;
+                    
+                    tempCtx.fillStyle = '#000';
+                    tempCtx.fillRect(0, 0, 1280, 1280);
+                    tempCtx.drawImage(video, x, y, width, height);
+                    
+                    const imageData = tempCanvas.toDataURL('image/jpeg', 0.8);
+
+                    // Envia para o servidor com a configuração de qualidade
+                    const response = await fetch('/detect', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            image: imageData,
+                            quality: qualitySelect.value
+                        })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.detections) {
+                            ctx.clearRect(0, 0, canvas.width, canvas.height);
+                            drawDetections(data.detections, scale, x, y);
+                            
+                            // Atualiza estatísticas
+                            detectionCount.textContent = data.detections.length;
+                            const endTime = performance.now();
+                            const processTime = endTime - startTime;
+                            processingBuffer.push(processTime);
+                            processingTime.textContent = Math.round(processingBuffer.average());
+                            
+                            // Atualiza FPS
+                            frameCount++;
+                            const now = Date.now();
+                            if (now - lastFpsUpdate >= 1000) {
+                                const fps = frameCount;
+                                fpsBuffer.push(fps);
+                                fpsValue.textContent = Math.round(fpsBuffer.average());
+                                frameCount = 0;
+                                lastFpsUpdate = now;
+                            }
+
+                            statusText.textContent = `Detectando (${data.quality_mode})`;
+                        }
+                    } else {
+                        const error = await response.text();
+                        console.error('Erro na detecção:', error);
+                        statusText.textContent = 'Erro na detecção';
+                    }
+                } catch (error) {
+                    console.error('Erro ao processar frame:', error);
+                    statusText.textContent = 'Erro ao processar frame';
+                }
+
+                isProcessing = false;
+            }
+
+            // Agenda o próximo frame com delay baseado na qualidade
+            const delay = qualitySelect.value === 'performance' ? 0 : 
+                         qualitySelect.value === 'balanced' ? 30 : 50;
+            setTimeout(() => requestAnimationFrame(processFrame), delay);
+        }
+
+        function drawDetections(detections, scale, offsetX, offsetY) {
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            detections.forEach(det => {
+                const [x1, y1, x2, y2] = det.bbox;
+                const confidence = det.confidence;
+                const classId = det.class;
+                
+                // Ajusta as coordenadas de acordo com a escala e offset
+                const scaledX1 = (x1 - offsetX) / scale;
+                const scaledY1 = (y1 - offsetY) / scale;
+                const scaledX2 = (x2 - offsetX) / scale;
+                const scaledY2 = (y2 - offsetY) / scale;
+                
+                // Desenha a bounding box
+                ctx.strokeStyle = colors[classId % colors.length];
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.rect(scaledX1, scaledY1, scaledX2 - scaledX1, scaledY2 - scaledY1);
+                ctx.stroke();
+                
+                // Desenha o rótulo
+                ctx.fillStyle = colors[classId % colors.length];
+                const label = `Classe ${classId}: ${(confidence * 100).toFixed(1)}%`;
+                ctx.font = 'bold 16px "Segoe UI"';
+                const textWidth = ctx.measureText(label).width;
+                const padding = 5;
+                
+                // Adiciona um fundo semi-transparente para melhor legibilidade
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(
+                    scaledX1 - 1,
+                    scaledY1 - 25,
+                    textWidth + padding * 2,
+                    25
+                );
+                
+                ctx.fillStyle = colors[classId % colors.length];
+                ctx.fillText(label, scaledX1 + padding, scaledY1 - 7);
+            });
+        }
+
+        // Atualiza qualidade quando o usuário mudar a seleção
+        qualitySelect.addEventListener('change', () => {
+            statusText.textContent = `Alterando qualidade para: ${qualitySelect.value}`;
+        });
+
+        // Inicia o carregamento das câmeras quando a página carregar
+        loadCameras();
+    </script>
+</body>
+</html>
