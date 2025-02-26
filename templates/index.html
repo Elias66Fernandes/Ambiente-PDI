@@ -152,7 +152,7 @@
 </head>
 <body>
     <header>
-        <h1>Detecção de Termolatência em Tempo Real</h1>
+        <h1>Detecção de Fisssuras em Tempo Real</h1>
     </header>
 
     <div class="container">
@@ -382,41 +382,24 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             
             detections.forEach(det => {
-                const [x1, y1, x2, y2] = det.bbox;
-                const confidence = det.confidence;
-                const classId = det.class;
-                
-                // Ajusta as coordenadas de acordo com a escala e offset
-                const scaledX1 = (x1 - offsetX) / scale;
-                const scaledY1 = (y1 - offsetY) / scale;
-                const scaledX2 = (x2 - offsetX) / scale;
-                const scaledY2 = (y2 - offsetY) / scale;
-                
-                // Desenha a bounding box
-                ctx.strokeStyle = colors[classId % colors.length];
-                ctx.lineWidth = 3;
-                ctx.beginPath();
-                ctx.rect(scaledX1, scaledY1, scaledX2 - scaledX1, scaledY2 - scaledY1);
-                ctx.stroke();
-                
-                // Desenha o rótulo
-                ctx.fillStyle = colors[classId % colors.length];
-                const label = `Classe ${classId}: ${(confidence * 100).toFixed(1)}%`;
-                ctx.font = 'bold 16px "Segoe UI"';
-                const textWidth = ctx.measureText(label).width;
-                const padding = 5;
-                
-                // Adiciona um fundo semi-transparente para melhor legibilidade
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-                ctx.fillRect(
-                    scaledX1 - 1,
-                    scaledY1 - 25,
-                    textWidth + padding * 2,
-                    25
-                );
-                
-                ctx.fillStyle = colors[classId % colors.length];
-                ctx.fillText(label, scaledX1 + padding, scaledY1 - 7);
+                // Decodifica a máscara base64 e a desenha
+                const maskImage = new Image();
+                maskImage.onload = () => {
+                    // Desenha a máscara com transparência
+                    ctx.globalAlpha = 0.5;
+                    ctx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
+                    ctx.globalAlpha = 1.0;
+
+                    // Adiciona o rótulo da classe
+                    const text = `${det.class} (${(det.confidence * 100).toFixed(1)}%)`;
+                    ctx.font = '16px Arial';
+                    ctx.fillStyle = det.class === 'Moderada' ? '#FFA500' : '#FF0000';
+                    ctx.strokeStyle = 'black';
+                    ctx.lineWidth = 2;
+                    ctx.strokeText(text, 10, 30);
+                    ctx.fillText(text, 10, 30);
+                };
+                maskImage.src = 'data:image/png;base64,' + det.mask;
             });
         }
 
