@@ -6,3 +6,4 @@ ultralytics==8.3.74
 torch==2.1.0
 torchvision==0.16.0
 onnxruntime==1.20.1
+gunicorn==21.2.0
