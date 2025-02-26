@@ -305,18 +305,18 @@
                 try {
                     // Captura e processa o frame
                     const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = 1280;
-                    tempCanvas.height = 1280;
+                    tempCanvas.width = 256;
+                    tempCanvas.height = 256;
                     const tempCtx = tempCanvas.getContext('2d');
                     
-                    const scale = Math.min(1280 / video.videoWidth, 1280 / video.videoHeight);
+                    const scale = Math.min(256 / video.videoWidth, 256 / video.videoHeight);
                     const width = video.videoWidth * scale;
                     const height = video.videoHeight * scale;
-                    const x = (1280 - width) / 2;
-                    const y = (1280 - height) / 2;
+                    const x = (256 - width) / 2;
+                    const y = (256 - height) / 2;
                     
                     tempCtx.fillStyle = '#000';
-                    tempCtx.fillRect(0, 0, 1280, 1280);
+                    tempCtx.fillRect(0, 0, 256, 256);
                     tempCtx.drawImage(video, x, y, width, height);
                     
                     const imageData = tempCanvas.toDataURL('image/jpeg', 0.8);
@@ -385,9 +385,16 @@
                 // Decodifica a máscara base64 e a desenha
                 const maskImage = new Image();
                 maskImage.onload = () => {
+                    // Redimensiona a máscara para o tamanho do canvas
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvas.width;
+                    tempCanvas.height = canvas.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    tempCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
+                    
                     // Desenha a máscara com transparência
                     ctx.globalAlpha = 0.5;
-                    ctx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(tempCanvas, 0, 0);
                     ctx.globalAlpha = 1.0;
 
                     // Adiciona o rótulo da classe

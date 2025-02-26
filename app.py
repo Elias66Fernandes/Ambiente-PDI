@@ -12,10 +12,11 @@ CORS(app)
 # Carregar modelo PyTorch
 model = YOLO('best.pt')
 
-# Definir tamanho de entrada
-INPUT_SIZE = 640
+# Definir tamanho de entrada correto para o modelo
+INPUT_SIZE = 256
 
 def preprocess_image(image):
+    # Redimensionar para o tamanho correto do modelo
     img = cv2.resize(image, (INPUT_SIZE, INPUT_SIZE))
     return img
 
