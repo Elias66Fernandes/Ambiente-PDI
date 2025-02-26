@@ -5,7 +5,6 @@ import base64
 from flask_cors import CORS
 import torch
 from ultralytics import YOLO
-import os
 
 app = Flask(__name__)
 CORS(app)
@@ -78,15 +77,4 @@ def detect():
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    # Obter porta do ambiente (Render) ou usar 5000 como fallback
-    port = int(os.environ.get("PORT", 5000))
-    
-    # Configurar para produção
-    debug_mode = os.environ.get("FLASK_ENV") == "development"
-    
-    app.run(
-        host='0.0.0.0',
-        port=port,
-        debug=debug_mode,
-        threaded=True
-    )
+    app.run()
