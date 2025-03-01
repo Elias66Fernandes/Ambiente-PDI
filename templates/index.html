@@ -250,7 +250,7 @@
                 };
 
                 // Carrega o modelo ONNX
-                session = await ort.InferenceSession.create('/static/yolo11n-seg.onnx', options);
+                session = await ort.InferenceSession.create('/static/best.onnx', options);
 
                 // Log dos inputs/outputs do modelo para debug
                 console.log('Model inputs:', session.inputNames);
