@@ -280,11 +280,11 @@
                 const startTime = performance.now();
 
                 try {
-                    // Atualiza o canvas principal primeiro para manter o vídeo fluido
+                    // Limpa o canvas antes de cada frame
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    // Prepara a imagem para o modelo em um worker separado
+                    // Prepara a imagem para o modelo
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = 256;
                     tempCanvas.height = 256;
@@ -304,36 +304,51 @@
                     const imageData = tempCtx.getImageData(0, 0, 256, 256);
                     const tensor = await preprocessImage(imageData);
                     
-                    // Executa a inferência usando o nome correto do input
+                    // Executa a inferência
                     const inputName = session.inputNames[0];
                     const feeds = {};
                     feeds[inputName] = tensor;
                     
                     const results = await session.run(feeds);
                     
-                    // Processa os resultados - agora sabemos que temos 2 outputs
+                    // Processa os resultados
                     const output0 = results[session.outputNames[0]];
                     const output1 = results[session.outputNames[1]];
                     
                     if (output0 && output1) {
-                        // Converte os outputs em detecções
+                        // Log para debug
+                        console.log('Output0 shape:', output0.dims);
+                        console.log('Output1 shape:', output1.dims);
+                        console.log('Output0 data (primeiros 10):', output0.data.slice(0, 10));
+                        console.log('Output1 data (primeiros 10):', output1.data.slice(0, 10));
+
                         const detections = [];
-                        const numDetections = output0.dims[1]; // Número de detecções no primeiro output
+                        const numDetections = output0.dims[1];
                         
                         for (let i = 0; i < numDetections; i++) {
-                            const confidence = output0.data[i * 6 + 4]; // Assumindo que a confiança está no índice 4
-                            if (confidence > 0.25) { // Threshold de confiança
+                            // Extrai os dados do tensor na ordem correta
+                            const offset = i * output0.dims[2]; // output0.dims[2] deve ser 6 (x1,y1,x2,y2,conf,class)
+                            const confidence = output0.data[offset + 4];
+                            
+                            // Só processa se a confiança for razoável (entre 0 e 1)
+                            if (confidence > 0.25 && confidence <= 1.0) {
                                 const detection = {
                                     bbox: [
-                                        output0.data[i * 6], // x1
-                                        output0.data[i * 6 + 1], // y1
-                                        output0.data[i * 6 + 2], // x2
-                                        output0.data[i * 6 + 3], // y2
+                                        output0.data[offset],     // x1
+                                        output0.data[offset + 1], // y1
+                                        output0.data[offset + 2], // x2
+                                        output0.data[offset + 3], // y2
                                     ],
-                                    class_id: Math.round(output0.data[i * 6 + 5]), // classe
-                                    confidence: confidence,
-                                    mask: output1 ? output1.data.slice(i * 256 * 256, (i + 1) * 256 * 256) : null
+                                    class_id: Math.round(output0.data[offset + 5]),
+                                    confidence: confidence
                                 };
+
+                                // Extrai a máscara se disponível
+                                if (output1.dims[1] === numDetections) {
+                                    const maskOffset = i * 256 * 256;
+                                    detection.mask = output1.data.slice(maskOffset, maskOffset + 256 * 256);
+                                }
+
                                 detections.push(detection);
                             }
                         }
@@ -374,7 +389,7 @@
 
             // Agenda o próximo frame com delay baseado na qualidade
             const delay = qualitySelect.value === 'performance' ? 0 : 
-                         qualitySelect.value === 'balanced' ? 100 : 200; // Aumentei os delays para melhor performance
+                         qualitySelect.value === 'balanced' ? 100 : 200;
             setTimeout(() => requestAnimationFrame(processFrame), delay);
         }
 
@@ -393,39 +408,54 @@
                 const canvasX2 = x2 * scaleX;
                 const canvasY2 = y2 * scaleY;
                 
-                // Desenha a bounding box
-                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
-                ctx.lineWidth = 2;
-                ctx.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1);
-                
-                // Desenha o rótulo
-                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
-                ctx.font = '12px Arial';
-                ctx.fillText(`${className} ${(confidence * 100).toFixed(1)}%`, canvasX1, canvasY1 - 5);
-                
-                // Se houver máscara, desenha ela
-                if (det.mask) {
+                // Desenha a máscara primeiro (se existir)
+                if (det.mask && det.mask.length === 256 * 256) {
                     const maskCanvas = document.createElement('canvas');
                     maskCanvas.width = 256;
                     maskCanvas.height = 256;
                     const maskCtx = maskCanvas.getContext('2d');
                     
-                    // Cria a imagem da máscara
                     const maskImageData = maskCtx.createImageData(256, 256);
                     for (let i = 0; i < det.mask.length; i++) {
-                        const idx = i * 4;
-                        const value = det.mask[i] * 255;
-                        maskImageData.data[idx] = value;
-                        maskImageData.data[idx + 1] = value;
-                        maskImageData.data[idx + 2] = value;
-                        maskImageData.data[idx + 3] = value > 128 ? 128 : 0; // Transparência
+                        const value = det.mask[i];
+                        if (value > 0.5) { // threshold para a máscara
+                            const idx = i * 4;
+                            const color = det.class_id === 0 ? [0, 255, 0] : [255, 0, 0];
+                            maskImageData.data[idx] = color[0];     // R
+                            maskImageData.data[idx + 1] = color[1]; // G
+                            maskImageData.data[idx + 2] = color[2]; // B
+                            maskImageData.data[idx + 3] = 128;      // Alpha
+                        }
                     }
                     
                     maskCtx.putImageData(maskImageData, 0, 0);
-                    
-                    // Desenha a máscara escalada para o tamanho do canvas
                     ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
                 }
+                
+                // Desenha a bounding box
+                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1);
+                
+                // Desenha o rótulo com fundo
+                const label = `${className} ${(confidence * 100).toFixed(1)}%`;
+                ctx.font = '12px Arial';
+                const textMetrics = ctx.measureText(label);
+                const textHeight = 14; // altura aproximada do texto
+                const padding = 2;
+                
+                // Desenha o fundo do texto
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(
+                    canvasX1 - padding,
+                    canvasY1 - textHeight - padding,
+                    textMetrics.width + (padding * 2),
+                    textHeight + (padding * 2)
+                );
+                
+                // Desenha o texto
+                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.fillText(label, canvasX1, canvasY1 - 2);
             });
         }
 
