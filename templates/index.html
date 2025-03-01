@@ -213,6 +213,7 @@
         let frameCount = 0;
         let lastFpsUpdate = Date.now();
         let session = null;
+        let lastFrameTime = 0;
 
         class CircularBuffer {
             constructor(size) {
@@ -245,12 +246,12 @@
 
                 // Configuração do ONNX Runtime
                 const options = {
-                    executionProviders: ['wasm'],
+                    executionProviders: ['webgl'],
                     graphOptimizationLevel: 'all'
                 };
 
                 // Carrega o modelo ONNX
-                session = await ort.InferenceSession.create('/static/best.onnx', options);
+                session = await ort.InferenceSession.create('/static/best_fp16.onnx', options);
 
                 // Log dos inputs/outputs do modelo para debug
                 console.log('Model inputs:', session.inputNames);
@@ -263,112 +264,80 @@
             }
         }
 
-        async function preprocessImage(imageData) {
-            // Converter para RGB e normalizar
+        // Canvas temporário para processamento
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = 256;
+        tempCanvas.height = 256;
+        const tempCtx = tempCanvas.getContext('2d');
+
+        async function preprocessImage() {
+            // Redimensiona para 256x256 no canvas temporário
+            tempCtx.drawImage(video, 0, 0, 256, 256);
+            const resizedData = tempCtx.getImageData(0, 0, 256, 256);
+            
+            // Converte para tensor no formato esperado pelo modelo
             const data = new Float32Array(3 * 256 * 256);
-            for (let i = 0; i < imageData.data.length / 4; i++) {
-                data[i] = imageData.data[i * 4] / 255.0;                     // R
-                data[i + 256 * 256] = imageData.data[i * 4 + 1] / 255.0;    // G
-                data[i + 2 * 256 * 256] = imageData.data[i * 4 + 2] / 255.0; // B
+            for (let i = 0; i < resizedData.data.length / 4; i++) {
+                data[i] = resizedData.data[i * 4] / 255.0;
+                data[i + 256 * 256] = resizedData.data[i * 4 + 1] / 255.0;
+                data[i + 2 * 256 * 256] = resizedData.data[i * 4 + 2] / 255.0;
             }
             return new ort.Tensor('float32', data, [1, 3, 256, 256]);
         }
 
-        async function processFrame() {
+        async function processFrame(now, metadata) {
             if (!isProcessing && session) {
                 isProcessing = true;
-
+                const startTime = performance.now();
+                
                 try {
+                    // Limpa e desenha o frame atual
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = 256;
-                    tempCanvas.height = 256;
-                    const tempCtx = tempCanvas.getContext('2d');
                     
-                    const scale = Math.min(256 / video.videoWidth, 256 / video.videoHeight);
-                    const width = video.videoWidth * scale;
-                    const height = video.videoHeight * scale;
-                    const x = (256 - width) / 2;
-                    const y = (256 - height) / 2;
+                    // Processa a imagem em resolução reduzida e executa a inferência
+                    const tensor = await preprocessImage();
+                    const results = await session.run({ images: tensor });
+                    const detections = results.output;
                     
-                    tempCtx.fillStyle = '#000';
-                    tempCtx.fillRect(0, 0, 256, 256);
-                    tempCtx.drawImage(video, x, y, width, height);
+                    // Aplica NMS e ajusta as coordenadas para a resolução original
+                    const finalDetections = applyNMS(detections).map(det => ({
+                        ...det,
+                        x: (det.x * canvas.width) / 256,
+                        y: (det.y * canvas.height) / 256,
+                        width: (det.width * canvas.width) / 256,
+                        height: (det.height * canvas.height) / 256
+                    }));
                     
-                    const imageData = tempCtx.getImageData(0, 0, 256, 256);
-                    const tensor = await preprocessImage(imageData);
+                    drawDetections(finalDetections);
                     
-                    const inputName = session.inputNames[0];
-                    const feeds = {};
-                    feeds[inputName] = tensor;
+                    // Atualiza métricas
+                    const endTime = performance.now();
+                    const processingTime = endTime - startTime;
                     
-                    const results = await session.run(feeds);
+                    processingBuffer.push(processingTime);
+                    fpsBuffer.push(1000 / (now - lastFrameTime));
+                    lastFrameTime = now;
                     
-                    const output0 = results[session.outputNames[0]];
-                    const output1 = results[session.outputNames[1]];
-                    
-                    if (output0) {
-                        const detections = [];
-                        const numDetections = output0.dims[1];
-                        
-                        // Processa cada detecção
-                        for (let i = 0; i < numDetections; i++) {
-                            const bboxOffset = i * 4;
-                            const confOffset = numDetections * 4 + i;
-                            const classOffset = numDetections * 5 + i;
-                            
-                            const bbox = [
-                                output0.data[bboxOffset],
-                                output0.data[bboxOffset + 1],
-                                output0.data[bboxOffset + 2],
-                                output0.data[bboxOffset + 3]
-                            ];
-                            
-                            const confidence = output0.data[confOffset];
-                            const classId = Math.round(output0.data[classOffset]);
-                            
-                            // Filtra detecções com confiança mínima
-                            if (confidence > 0.5) {
-                                const detection = {
-                                    bbox: bbox,
-                                    class_id: classId,
-                                    confidence: Math.abs(confidence)
-                                };
-                                
-                                // Adiciona máscara se disponível
-                                if (output1) {
-                                    const maskOffset = i * 256 * 256;
-                                    detection.mask = Array.from(output1.data.slice(maskOffset, maskOffset + 256 * 256));
-                                }
-                                
-                                detections.push(detection);
-                            }
-                        }
-                        
-                        // Aplica NMS para remover detecções duplicadas
-                        const finalDetections = applyNMS(detections, 0.3);
-                        
-                        detectionCount.textContent = finalDetections.length;
-                        
-                        if (finalDetections.length > 0) {
-                            drawDetections(finalDetections);
-                        }
-                        
-                        statusText.textContent = 'Detectando';
-                    }
+                    // Atualiza a UI
+                    document.getElementById('processingTime').textContent = Math.round(processingBuffer.average());
+                    document.getElementById('fpsValue').textContent = Math.round(fpsBuffer.average());
+                    document.getElementById('detectionCount').textContent = finalDetections.length;
+                    document.getElementById('statusText').textContent = 'Processando';
                 } catch (error) {
                     console.error('Erro ao processar frame:', error);
-                    statusText.textContent = 'Erro ao processar frame';
+                    document.getElementById('statusText').textContent = 'Erro: ' + error.message;
                 }
-
+                
                 isProcessing = false;
             }
-
-            const delay = qualitySelect.value === 'performance' ? 0 : 
-                         qualitySelect.value === 'balanced' ? 100 : 200;
-            setTimeout(() => requestAnimationFrame(processFrame), delay);
+            
+            // Agenda o próximo frame
+            if ('requestVideoFrameCallback' in video) {
+                video.requestVideoFrameCallback(processFrame);
+            } else {
+                requestAnimationFrame(() => processFrame(performance.now()));
+            }
         }
 
         // Função para calcular IoU (Intersection over Union)
