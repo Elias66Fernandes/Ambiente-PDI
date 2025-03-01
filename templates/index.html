@@ -252,6 +252,10 @@
                 // Carrega o modelo ONNX
                 session = await ort.InferenceSession.create('/static/best.onnx', options);
 
+                // Log dos inputs/outputs do modelo para debug
+                console.log('Model inputs:', session.inputNames);
+                console.log('Model outputs:', session.outputNames);
+
                 statusText.textContent = 'Modelo carregado!';
             } catch (error) {
                 console.error('Erro ao carregar modelo:', error);
@@ -300,15 +304,25 @@
                     const imageData = tempCtx.getImageData(0, 0, 256, 256);
                     const tensor = await preprocessImage(imageData);
                     
-                    // Executa a inferência
-                    const feeds = { images: tensor };
-                    console.log('Executando inferência...', feeds);
+                    // Executa a inferência usando o nome correto do input
+                    const inputName = session.inputNames[0];
+                    const outputName = session.outputNames[0];
+                    const feeds = {};
+                    feeds[inputName] = tensor;
+                    
+                    console.log('Executando inferência...', {
+                        inputName,
+                        outputName,
+                        tensorShape: tensor.dims
+                    });
+                    
                     const results = await session.run(feeds);
                     console.log('Resultados:', results);
-
-                    // Processa os resultados
-                    if (results && results.output) {
-                        const detections = results.output;
+                    
+                    // Pega o resultado usando o nome correto do output
+                    const output = results[outputName];
+                    if (output) {
+                        const detections = Array.isArray(output) ? output : [output];
                         console.log('Detecções:', detections);
                         
                         // Atualiza estatísticas
@@ -408,11 +422,11 @@
             try {
                 const devices = await navigator.mediaDevices.enumerateDevices();
                 const videoDevices = devices.filter(device => device.kind === 'videoinput');
-
+                
                 cameraSelect.innerHTML = videoDevices.map(device =>
-                    `<option value="${device.deviceId}">${device.label || `Camera ${device.deviceId}`}</option>`
+                    `<option value="${device.deviceId}">${device.label || `Camera ${videoDevices.indexOf(device) + 1}`}</option>`
                 ).join('');
-
+                
                 if (videoDevices.length > 0) {
                     await setupCamera(videoDevices[0].deviceId);
                 }
@@ -424,28 +438,46 @@
 
         async function setupCamera(deviceId) {
             try {
+                // Tenta primeiro com as configurações ideais
                 const constraints = {
                     video: {
                         deviceId: deviceId ? { exact: deviceId } : undefined,
                         width: { ideal: 1280 },
-                        height: { ideal: 720 }
+                        height: { ideal: 720 },
+                        facingMode: deviceId ? undefined : { ideal: 'environment' }
                     }
                 };
-
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                video.srcObject = stream;
-
+                
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                    video.srcObject = stream;
+                } catch (e) {
+                    console.log('Tentando configuração alternativa...');
+                    // Se falhar, tenta com configurações mais básicas
+                    const basicConstraints = {
+                        video: {
+                            deviceId: deviceId ? { exact: deviceId } : undefined,
+                            facingMode: deviceId ? undefined : { ideal: 'environment' }
+                        }
+                    };
+                    const stream = await navigator.mediaDevices.getUserMedia(basicConstraints);
+                    video.srcObject = stream;
+                }
+                
                 // Configura o canvas para corresponder ao tamanho do vídeo
                 video.onloadedmetadata = () => {
                     canvas.width = video.videoWidth;
                     canvas.height = video.videoHeight;
                     processFrame();
                 };
-
+                
                 statusText.textContent = 'Câmera iniciada';
             } catch (error) {
                 console.error('Erro ao configurar câmera:', error);
-                statusText.textContent = 'Erro ao configurar câmera';
+                statusText.textContent = 'Erro ao configurar câmera. Tente recarregar a página.';
+                // Tenta listar as câmeras disponíveis para debug
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                console.log('Câmeras disponíveis:', devices.filter(d => d.kind === 'videoinput'));
             }
         }
 
