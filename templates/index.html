@@ -242,25 +242,46 @@
 
         async function loadModel() {
             try {
+                const statusText = document.getElementById('statusText');
                 statusText.textContent = 'Carregando modelo...';
 
-                // Configuração do ONNX Runtime
+                // Verifica se WebGL está disponível
+                if (!ort.env.webgl.isWebGLAvailable()) {
+                    throw new Error('WebGL não está disponível. O aplicativo requer WebGL para melhor performance.');
+                }
+
+                // Configuração do ONNX Runtime forçando WebGL
                 const options = {
                     executionProviders: ['webgl'],
-                    graphOptimizationLevel: 'all'
+                    graphOptimizationLevel: 'all',
+                    webgl: {
+                        enabled: true,
+                        contextId: 'webgl2',
+                        matmulMaxBatchSize: 16,
+                        textureCacheMode: 'full'
+                    }
                 };
 
                 // Carrega o modelo ONNX
-                session = await ort.InferenceSession.create('/static/best_fp16.onnx', options);
+                session = await ort.InferenceSession.create('static/best_fp16.onnx', options);
+
+                // Verifica se o modelo foi carregado corretamente
+                if (!session) {
+                    throw new Error('Sessão do modelo não foi criada');
+                }
 
                 // Log dos inputs/outputs do modelo para debug
                 console.log('Model inputs:', session.inputNames);
                 console.log('Model outputs:', session.outputNames);
+                console.log('Usando WebGL:', ort.env.webgl.isWebGLAvailable());
 
-                statusText.textContent = 'Modelo carregado!';
+                statusText.textContent = 'Modelo carregado com sucesso em WebGL!';
+                return true;
             } catch (error) {
-                console.error('Erro ao carregar modelo:', error);
-                statusText.textContent = 'Erro ao carregar modelo';
+                console.error('Erro detalhado ao carregar modelo:', error);
+                const statusText = document.getElementById('statusText');
+                statusText.textContent = `Erro ao carregar modelo: ${error.message}`;
+                return false;
             }
         }
 
