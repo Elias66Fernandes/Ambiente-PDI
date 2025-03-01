@@ -277,14 +277,11 @@
         async function processFrame() {
             if (!isProcessing && session) {
                 isProcessing = true;
-                const startTime = performance.now();
 
                 try {
-                    // Limpa o canvas antes de cada frame
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    // Prepara a imagem para o modelo
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = 256;
                     tempCanvas.height = 256;
@@ -300,83 +297,64 @@
                     tempCtx.fillRect(0, 0, 256, 256);
                     tempCtx.drawImage(video, x, y, width, height);
                     
-                    // Prepara os dados para o modelo
                     const imageData = tempCtx.getImageData(0, 0, 256, 256);
                     const tensor = await preprocessImage(imageData);
                     
-                    // Executa a inferência
                     const inputName = session.inputNames[0];
                     const feeds = {};
                     feeds[inputName] = tensor;
                     
                     const results = await session.run(feeds);
                     
-                    // Processa os resultados
                     const output0 = results[session.outputNames[0]];
                     const output1 = results[session.outputNames[1]];
                     
-                    if (output0 && output1) {
-                        // Log para debug
-                        console.log('Output0 shape:', output0.dims);
-                        console.log('Output1 shape:', output1.dims);
-                        console.log('Output0 data (primeiros 10):', output0.data.slice(0, 10));
-                        console.log('Output1 data (primeiros 10):', output1.data.slice(0, 10));
-
+                    if (output0) {
                         const detections = [];
                         const numDetections = output0.dims[1];
+                        const stride = output0.dims[2];
                         
                         for (let i = 0; i < numDetections; i++) {
-                            // Extrai os dados do tensor na ordem correta
-                            const offset = i * output0.dims[2]; // output0.dims[2] deve ser 6 (x1,y1,x2,y2,conf,class)
-                            const confidence = output0.data[offset + 4];
+                            const offset = i * stride;
                             
-                            // Só processa se a confiança for razoável (entre 0 e 1)
-                            if (confidence > 0.25 && confidence <= 1.0) {
+                            // Normaliza as coordenadas para 0-1
+                            const x1 = output0.data[offset] / 256;
+                            const y1 = output0.data[offset + 1] / 256;
+                            const x2 = output0.data[offset + 2] / 256;
+                            const y2 = output0.data[offset + 3] / 256;
+                            
+                            // Normaliza a confiança para 0-1
+                            const confidence = output0.data[offset + 4] / 100;
+                            const classId = Math.round(output0.data[offset + 5]);
+                            
+                            // Filtra detecções válidas
+                            if (confidence > 0.25 && // confiança mínima
+                                x2 > x1 && y2 > y1 && // box válida
+                                x1 >= 0 && y1 >= 0 && // dentro dos limites
+                                x2 <= 1 && y2 <= 1) {
+                                
                                 const detection = {
-                                    bbox: [
-                                        output0.data[offset],     // x1
-                                        output0.data[offset + 1], // y1
-                                        output0.data[offset + 2], // x2
-                                        output0.data[offset + 3], // y2
-                                    ],
-                                    class_id: Math.round(output0.data[offset + 5]),
+                                    bbox: [x1, y1, x2, y2],
+                                    class_id: classId,
                                     confidence: confidence
                                 };
-
-                                // Extrai a máscara se disponível
-                                if (output1.dims[1] === numDetections) {
+                                
+                                // Adiciona a máscara se disponível
+                                if (output1 && output1.dims[1] === numDetections) {
                                     const maskOffset = i * 256 * 256;
-                                    detection.mask = output1.data.slice(maskOffset, maskOffset + 256 * 256);
+                                    detection.mask = Array.from(output1.data.slice(maskOffset, maskOffset + 256 * 256));
                                 }
-
+                                
                                 detections.push(detection);
                             }
                         }
                         
-                        // Atualiza estatísticas
                         detectionCount.textContent = detections.length;
                         
-                        // Desenha as detecções
                         if (detections.length > 0) {
                             drawDetections(detections);
                         }
                         
-                        const endTime = performance.now();
-                        const processTime = endTime - startTime;
-                        processingBuffer.push(processTime);
-                        processingTime.textContent = Math.round(processingBuffer.average());
-                        
-                        // Atualiza FPS
-                        frameCount++;
-                        const now = Date.now();
-                        if (now - lastFpsUpdate >= 1000) {
-                            const fps = frameCount;
-                            fpsBuffer.push(fps);
-                            fpsValue.textContent = Math.round(fpsBuffer.average());
-                            frameCount = 0;
-                            lastFpsUpdate = now;
-                        }
-
                         statusText.textContent = 'Detectando';
                     }
                 } catch (error) {
@@ -387,7 +365,6 @@
                 isProcessing = false;
             }
 
-            // Agenda o próximo frame com delay baseado na qualidade
             const delay = qualitySelect.value === 'performance' ? 0 : 
                          qualitySelect.value === 'balanced' ? 100 : 200;
             setTimeout(() => requestAnimationFrame(processFrame), delay);
@@ -399,14 +376,11 @@
                 const confidence = det.confidence;
                 const className = det.class_id === 0 ? 'Moderada' : 'Severa';
                 
-                // Converte as coordenadas para o tamanho do canvas
-                const scaleX = canvas.width / 256;
-                const scaleY = canvas.height / 256;
-                
-                const canvasX1 = x1 * scaleX;
-                const canvasY1 = y1 * scaleY;
-                const canvasX2 = x2 * scaleX;
-                const canvasY2 = y2 * scaleY;
+                // Converte as coordenadas normalizadas para o tamanho do canvas
+                const canvasX1 = x1 * canvas.width;
+                const canvasY1 = y1 * canvas.height;
+                const canvasX2 = x2 * canvas.width;
+                const canvasY2 = y2 * canvas.height;
                 
                 // Desenha a máscara primeiro (se existir)
                 if (det.mask && det.mask.length === 256 * 256) {
@@ -418,13 +392,13 @@
                     const maskImageData = maskCtx.createImageData(256, 256);
                     for (let i = 0; i < det.mask.length; i++) {
                         const value = det.mask[i];
-                        if (value > 0.5) { // threshold para a máscara
+                        if (value > 0.2) { // threshold da máscara
                             const idx = i * 4;
-                            const color = det.class_id === 0 ? [0, 255, 0] : [255, 0, 0];
-                            maskImageData.data[idx] = color[0];     // R
-                            maskImageData.data[idx + 1] = color[1]; // G
-                            maskImageData.data[idx + 2] = color[2]; // B
-                            maskImageData.data[idx + 3] = 128;      // Alpha
+                            const color = det.class_id === 0 ? [0, 255, 0, 128] : [255, 0, 0, 128];
+                            maskImageData.data[idx] = color[0];
+                            maskImageData.data[idx + 1] = color[1];
+                            maskImageData.data[idx + 2] = color[2];
+                            maskImageData.data[idx + 3] = color[3];
                         }
                     }
                     
@@ -437,14 +411,14 @@
                 ctx.lineWidth = 2;
                 ctx.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1);
                 
-                // Desenha o rótulo com fundo
+                // Desenha o rótulo
                 const label = `${className} ${(confidence * 100).toFixed(1)}%`;
                 ctx.font = '12px Arial';
                 const textMetrics = ctx.measureText(label);
-                const textHeight = 14; // altura aproximada do texto
+                const textHeight = 14;
                 const padding = 2;
                 
-                // Desenha o fundo do texto
+                // Fundo do texto
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.fillRect(
                     canvasX1 - padding,
@@ -453,7 +427,7 @@
                     textHeight + (padding * 2)
                 );
                 
-                // Desenha o texto
+                // Texto
                 ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
                 ctx.fillText(label, canvasX1, canvasY1 - 2);
             });
