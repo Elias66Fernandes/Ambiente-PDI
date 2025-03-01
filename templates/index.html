@@ -245,21 +245,10 @@
                 const statusText = document.getElementById('statusText');
                 statusText.textContent = 'Carregando modelo...';
 
-                // Verifica se WebGL está disponível
-                if (!ort.env.webgl.isWebGLAvailable()) {
-                    throw new Error('WebGL não está disponível. O aplicativo requer WebGL para melhor performance.');
-                }
-
-                // Configuração do ONNX Runtime forçando WebGL
+                // Configuração do ONNX Runtime
                 const options = {
                     executionProviders: ['webgl'],
-                    graphOptimizationLevel: 'all',
-                    webgl: {
-                        enabled: true,
-                        contextId: 'webgl2',
-                        matmulMaxBatchSize: 16,
-                        textureCacheMode: 'full'
-                    }
+                    graphOptimizationLevel: 'all'
                 };
 
                 // Carrega o modelo ONNX
@@ -273,13 +262,29 @@
                 // Log dos inputs/outputs do modelo para debug
                 console.log('Model inputs:', session.inputNames);
                 console.log('Model outputs:', session.outputNames);
-                console.log('Usando WebGL:', ort.env.webgl.isWebGLAvailable());
 
-                statusText.textContent = 'Modelo carregado com sucesso em WebGL!';
+                statusText.textContent = 'Modelo carregado com sucesso!';
                 return true;
             } catch (error) {
+                // Se falhar com WebGL, tenta novamente com WASM
+                if (error.message.includes('webgl')) {
+                    console.log('WebGL falhou, tentando com WASM...');
+                    try {
+                        const wasmOptions = {
+                            executionProviders: ['wasm'],
+                            graphOptimizationLevel: 'all'
+                        };
+                        session = await ort.InferenceSession.create('static/best_fp16.onnx', wasmOptions);
+                        statusText.textContent = 'Modelo carregado com WASM';
+                        return true;
+                    } catch (wasmError) {
+                        console.error('Erro ao tentar WASM:', wasmError);
+                        statusText.textContent = `Erro ao carregar modelo: ${wasmError.message}`;
+                        return false;
+                    }
+                }
+                
                 console.error('Erro detalhado ao carregar modelo:', error);
-                const statusText = document.getElementById('statusText');
                 statusText.textContent = `Erro ao carregar modelo: ${error.message}`;
                 return false;
             }
