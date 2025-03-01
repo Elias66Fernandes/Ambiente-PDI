@@ -245,10 +245,15 @@
                 const statusText = document.getElementById('statusText');
                 statusText.textContent = 'Carregando modelo...';
 
-                // Configuração do ONNX Runtime
+                // Configuração do ONNX Runtime com suporte a float16
                 const options = {
                     executionProviders: ['webgl'],
-                    graphOptimizationLevel: 'all'
+                    graphOptimizationLevel: 'all',
+                    enableFloat16: true,
+                    webgl: {
+                        enableFloat16: true,
+                        preferredHalfFloatTextures: true
+                    }
                 };
 
                 // Carrega o modelo ONNX
@@ -266,20 +271,22 @@
                 statusText.textContent = 'Modelo carregado com sucesso!';
                 return true;
             } catch (error) {
-                // Se falhar com WebGL, tenta novamente com WASM
-                if (error.message.includes('webgl')) {
-                    console.log('WebGL falhou, tentando com WASM...');
+                // Se falhar, tenta converter para float32
+                if (error.message.includes('float16')) {
+                    console.log('Tentando converter modelo para float32...');
                     try {
-                        const wasmOptions = {
-                            executionProviders: ['wasm'],
-                            graphOptimizationLevel: 'all'
+                        const float32Options = {
+                            executionProviders: ['webgl'],
+                            graphOptimizationLevel: 'all',
+                            transformModel: true,
+                            enableFloat16: false
                         };
-                        session = await ort.InferenceSession.create('static/best_fp16.onnx', wasmOptions);
-                        statusText.textContent = 'Modelo carregado com WASM';
+                        session = await ort.InferenceSession.create('static/best_fp16.onnx', float32Options);
+                        statusText.textContent = 'Modelo carregado com conversão para float32';
                         return true;
-                    } catch (wasmError) {
-                        console.error('Erro ao tentar WASM:', wasmError);
-                        statusText.textContent = `Erro ao carregar modelo: ${wasmError.message}`;
+                    } catch (convError) {
+                        console.error('Erro na conversão:', convError);
+                        statusText.textContent = `Erro ao converter modelo: ${convError.message}`;
                         return false;
                     }
                 }
