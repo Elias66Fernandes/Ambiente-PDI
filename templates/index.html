@@ -149,6 +149,7 @@
             }
         }
     </style>
+    <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web/dist/ort.min.js"></script>
 </head>
 <body>
     <header>
@@ -202,103 +203,69 @@
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
         const statusText = document.getElementById('statusText');
-        const cameraSelect = document.getElementById('cameraSelect');
-        const qualitySelect = document.getElementById('qualitySelect');
         const fpsValue = document.getElementById('fpsValue');
         const detectionCount = document.getElementById('detectionCount');
         const processingTime = document.getElementById('processingTime');
-        
+        const qualitySelect = document.getElementById('qualitySelect');
+        const cameraSelect = document.getElementById('cameraSelect');
+
         let isProcessing = false;
-        let currentStream = null;
         let frameCount = 0;
         let lastFpsUpdate = Date.now();
-        let processingTimes = [];
+        let session = null;
 
-        // Cores para as classes com melhor visibilidade
-        const colors = [
-            '#2196F3', // Azul
-            '#4CAF50', // Verde
-            '#F44336', // Vermelho
-            '#FFC107', // Amarelo
-            '#9C27B0'  // Roxo
-        ];
-
-        // Buffer circular para suavização de FPS
         class CircularBuffer {
             constructor(size) {
                 this.size = size;
                 this.buffer = new Array(size).fill(0);
                 this.index = 0;
+                this.sum = 0;
+                this.count = 0;
             }
 
             push(value) {
+                this.sum -= this.buffer[this.index];
                 this.buffer[this.index] = value;
+                this.sum += value;
                 this.index = (this.index + 1) % this.size;
+                this.count = Math.min(this.count + 1, this.size);
             }
 
             average() {
-                return this.buffer.reduce((a, b) => a + b, 0) / this.size;
+                return this.count > 0 ? this.sum / this.count : 0;
             }
         }
 
         const fpsBuffer = new CircularBuffer(30);
         const processingBuffer = new CircularBuffer(30);
 
-        async function loadCameras() {
+        async function loadModel() {
             try {
-                const devices = await navigator.mediaDevices.enumerateDevices();
-                const videoDevices = devices.filter(device => device.kind === 'videoinput');
-                
-                cameraSelect.innerHTML = videoDevices.map((device, index) =>
-                    `<option value="${device.deviceId}">Câmera ${index + 1}</option>`
-                ).join('');
+                statusText.textContent = 'Carregando modelo...';
 
-                if (videoDevices.length > 0) {
-                    await setupCamera(videoDevices[0].deviceId);
-                }
+                // Configuração do ONNX Runtime
+                const options = {
+                    executionProviders: ['wasm'],
+                    graphOptimizationLevel: 'all'
+                };
 
-                cameraSelect.onchange = (e) => setupCamera(e.target.value);
+                // Carrega o modelo ONNX
+                session = await ort.InferenceSession.create('/static/best.onnx', options);
+
+                statusText.textContent = 'Modelo carregado!';
             } catch (error) {
-                console.error('Erro ao carregar câmeras:', error);
-                statusText.textContent = 'Erro ao carregar câmeras: ' + error.message;
+                console.error('Erro ao carregar modelo:', error);
+                statusText.textContent = 'Erro ao carregar modelo';
             }
         }
 
-        async function setupCamera(deviceId) {
-            try {
-                if (currentStream) {
-                    currentStream.getTracks().forEach(track => track.stop());
-                }
-
-                const constraints = {
-                    video: {
-                        deviceId: deviceId ? { exact: deviceId } : undefined,
-                        width: { ideal: 1280 },
-                        height: { ideal: 1280 },
-                        facingMode: deviceId ? undefined : 'environment'
-                    }
-                };
-
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                currentStream = stream;
-                video.srcObject = stream;
-
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    statusText.textContent = 'Câmera pronta';
-                    if (!isProcessing) {
-                        processFrame();
-                    }
-                };
-            } catch (error) {
-                console.error('Erro ao acessar a câmera:', error);
-                statusText.textContent = 'Erro ao acessar a câmera: ' + error.message;
-            }
+        async function preprocessImage(imageData) {
+            const tensor = new ort.Tensor('float32', new Float32Array(imageData.data), [1, 3, 256, 256]);
+            return tensor;
         }
 
         async function processFrame() {
-            if (!isProcessing) {
+            if (!isProcessing && session) {
                 isProcessing = true;
                 const startTime = performance.now();
 
@@ -308,61 +275,52 @@
                     tempCanvas.width = 256;
                     tempCanvas.height = 256;
                     const tempCtx = tempCanvas.getContext('2d');
-                    
+
                     const scale = Math.min(256 / video.videoWidth, 256 / video.videoHeight);
                     const width = video.videoWidth * scale;
                     const height = video.videoHeight * scale;
                     const x = (256 - width) / 2;
                     const y = (256 - height) / 2;
-                    
+
                     tempCtx.fillStyle = '#000';
                     tempCtx.fillRect(0, 0, 256, 256);
                     tempCtx.drawImage(video, x, y, width, height);
-                    
-                    const imageData = tempCanvas.toDataURL('image/jpeg', 0.8);
 
-                    // Envia para o servidor com a configuração de qualidade
-                    const response = await fetch('/detect', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            image: imageData,
-                            quality: qualitySelect.value
-                        })
-                    });
+                    // Atualiza o canvas principal
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    if (response.ok) {
-                        const data = await response.json();
-                        if (data.detections) {
-                            ctx.clearRect(0, 0, canvas.width, canvas.height);
-                            drawDetections(data.detections, scale, x, y);
-                            
-                            // Atualiza estatísticas
-                            detectionCount.textContent = data.detections.length;
-                            const endTime = performance.now();
-                            const processTime = endTime - startTime;
-                            processingBuffer.push(processTime);
-                            processingTime.textContent = Math.round(processingBuffer.average());
-                            
-                            // Atualiza FPS
-                            frameCount++;
-                            const now = Date.now();
-                            if (now - lastFpsUpdate >= 1000) {
-                                const fps = frameCount;
-                                fpsBuffer.push(fps);
-                                fpsValue.textContent = Math.round(fpsBuffer.average());
-                                frameCount = 0;
-                                lastFpsUpdate = now;
-                            }
+                    // Prepara os dados para o modelo
+                    const imageData = tempCtx.getImageData(0, 0, 256, 256);
+                    const tensor = await preprocessImage(imageData);
 
-                            statusText.textContent = `Detectando (${data.quality_mode})`;
+                    // Executa a inferência
+                    const results = await session.run({ images: tensor });
+
+                    // Processa os resultados
+                    if (results && results.output) {
+                        const detections = results.output;
+                        drawDetections(detections);
+
+                        // Atualiza estatísticas
+                        detectionCount.textContent = detections.length;
+                        const endTime = performance.now();
+                        const processTime = endTime - startTime;
+                        processingBuffer.push(processTime);
+                        processingTime.textContent = Math.round(processingBuffer.average());
+
+                        // Atualiza FPS
+                        frameCount++;
+                        const now = Date.now();
+                        if (now - lastFpsUpdate >= 1000) {
+                            const fps = frameCount;
+                            fpsBuffer.push(fps);
+                            fpsValue.textContent = Math.round(fpsBuffer.average());
+                            frameCount = 0;
+                            lastFpsUpdate = now;
                         }
-                    } else {
-                        const error = await response.text();
-                        console.error('Erro na detecção:', error);
-                        statusText.textContent = 'Erro na detecção';
+
+                        statusText.textContent = 'Detectando';
                     }
                 } catch (error) {
                     console.error('Erro ao processar frame:', error);
@@ -378,45 +336,89 @@
             setTimeout(() => requestAnimationFrame(processFrame), delay);
         }
 
-        function drawDetections(detections, scale, offsetX, offsetY) {
-            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-            
+        function drawDetections(detections) {
             detections.forEach(det => {
-                // Decodifica a máscara base64 e a desenha
-                const maskImage = new Image();
-                maskImage.onload = () => {
-                    // Redimensiona a máscara para o tamanho do canvas
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = canvas.width;
-                    tempCanvas.height = canvas.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    tempCtx.drawImage(maskImage, 0, 0, canvas.width, canvas.height);
-                    
-                    // Desenha a máscara com transparência
-                    ctx.globalAlpha = 0.5;
-                    ctx.drawImage(tempCanvas, 0, 0);
-                    ctx.globalAlpha = 1.0;
+                const [x1, y1, x2, y2] = det.bbox;
+                const confidence = det.confidence;
+                const className = det.class_id === 0 ? 'Moderada' : 'Severa';
 
-                    // Adiciona o rótulo da classe
-                    const text = `${det.class} (${(det.confidence * 100).toFixed(1)}%)`;
-                    ctx.font = '16px Arial';
-                    ctx.fillStyle = det.class === 'Moderada' ? '#FFA500' : '#FF0000';
-                    ctx.strokeStyle = 'black';
-                    ctx.lineWidth = 2;
-                    ctx.strokeText(text, 10, 30);
-                    ctx.fillText(text, 10, 30);
-                };
-                maskImage.src = 'data:image/png;base64,' + det.mask;
+                // Desenha a bounding box
+                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+
+                // Desenha o rótulo
+                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.font = '12px Arial';
+                ctx.fillText(`${className} ${(confidence * 100).toFixed(1)}%`, x1, y1 - 5);
             });
         }
+
+        async function loadCameras() {
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+
+                cameraSelect.innerHTML = videoDevices.map(device =>
+                    `<option value="${device.deviceId}">${device.label || `Camera ${device.deviceId}`}</option>`
+                ).join('');
+
+                if (videoDevices.length > 0) {
+                    await setupCamera(videoDevices[0].deviceId);
+                }
+            } catch (error) {
+                console.error('Erro ao carregar câmeras:', error);
+                statusText.textContent = 'Erro ao carregar câmeras';
+            }
+        }
+
+        async function setupCamera(deviceId) {
+            try {
+                const constraints = {
+                    video: {
+                        deviceId: deviceId ? { exact: deviceId } : undefined,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+
+                // Configura o canvas para corresponder ao tamanho do vídeo
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    processFrame();
+                };
+
+                statusText.textContent = 'Câmera iniciada';
+            } catch (error) {
+                console.error('Erro ao configurar câmera:', error);
+                statusText.textContent = 'Erro ao configurar câmera';
+            }
+        }
+
+        // Inicia a aplicação
+        loadModel().then(() => {
+            if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                loadCameras();
+            } else {
+                statusText.textContent = 'Câmera não suportada';
+            }
+        });
+
+        // Atualiza câmera quando o usuário mudar a seleção
+        cameraSelect.addEventListener('change', () => {
+            if (cameraSelect.value) {
+                setupCamera(cameraSelect.value);
+            }
+        });
 
         // Atualiza qualidade quando o usuário mudar a seleção
         qualitySelect.addEventListener('change', () => {
             statusText.textContent = `Alterando qualidade para: ${qualitySelect.value}`;
         });
-
-        // Inicia o carregamento das câmeras quando a página carregar
-        loadCameras();
     </script>
 </body>
 </html>
