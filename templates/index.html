@@ -280,7 +280,11 @@
                 const startTime = performance.now();
 
                 try {
-                    // Captura e processa o frame
+                    // Atualiza o canvas principal primeiro para manter o vídeo fluido
+                    ctx.clearRect(0, 0, canvas.width, canvas.height);
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    // Prepara a imagem para o modelo em um worker separado
                     const tempCanvas = document.createElement('canvas');
                     tempCanvas.width = 256;
                     tempCanvas.height = 256;
@@ -295,10 +299,6 @@
                     tempCtx.fillStyle = '#000';
                     tempCtx.fillRect(0, 0, 256, 256);
                     tempCtx.drawImage(video, x, y, width, height);
-
-                    // Atualiza o canvas principal
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
                     
                     // Prepara os dados para o modelo
                     const imageData = tempCtx.getImageData(0, 0, 256, 256);
@@ -306,29 +306,42 @@
                     
                     // Executa a inferência usando o nome correto do input
                     const inputName = session.inputNames[0];
-                    const outputName = session.outputNames[0];
                     const feeds = {};
                     feeds[inputName] = tensor;
                     
-                    console.log('Executando inferência...', {
-                        inputName,
-                        outputName,
-                        tensorShape: tensor.dims
-                    });
-                    
                     const results = await session.run(feeds);
-                    console.log('Resultados:', results);
                     
-                    // Pega o resultado usando o nome correto do output
-                    const output = results[outputName];
-                    if (output) {
-                        const detections = Array.isArray(output) ? output : [output];
-                        console.log('Detecções:', detections);
+                    // Processa os resultados - agora sabemos que temos 2 outputs
+                    const output0 = results[session.outputNames[0]];
+                    const output1 = results[session.outputNames[1]];
+                    
+                    if (output0 && output1) {
+                        // Converte os outputs em detecções
+                        const detections = [];
+                        const numDetections = output0.dims[1]; // Número de detecções no primeiro output
+                        
+                        for (let i = 0; i < numDetections; i++) {
+                            const confidence = output0.data[i * 6 + 4]; // Assumindo que a confiança está no índice 4
+                            if (confidence > 0.25) { // Threshold de confiança
+                                const detection = {
+                                    bbox: [
+                                        output0.data[i * 6], // x1
+                                        output0.data[i * 6 + 1], // y1
+                                        output0.data[i * 6 + 2], // x2
+                                        output0.data[i * 6 + 3], // y2
+                                    ],
+                                    class_id: Math.round(output0.data[i * 6 + 5]), // classe
+                                    confidence: confidence,
+                                    mask: output1 ? output1.data.slice(i * 256 * 256, (i + 1) * 256 * 256) : null
+                                };
+                                detections.push(detection);
+                            }
+                        }
                         
                         // Atualiza estatísticas
-                        detectionCount.textContent = detections.length || 0;
+                        detectionCount.textContent = detections.length;
                         
-                        // Desenha as detecções se houver
+                        // Desenha as detecções
                         if (detections.length > 0) {
                             drawDetections(detections);
                         }
@@ -361,59 +374,57 @@
 
             // Agenda o próximo frame com delay baseado na qualidade
             const delay = qualitySelect.value === 'performance' ? 0 : 
-                         qualitySelect.value === 'balanced' ? 30 : 50;
+                         qualitySelect.value === 'balanced' ? 100 : 200; // Aumentei os delays para melhor performance
             setTimeout(() => requestAnimationFrame(processFrame), delay);
         }
 
         function drawDetections(detections) {
             detections.forEach(det => {
-                // Extrai as coordenadas da bounding box e outros dados
-                const box = det.box || det.bbox;
-                const confidence = det.confidence || det.score;
-                const classId = det.class_id || det.label;
+                const [x1, y1, x2, y2] = det.bbox;
+                const confidence = det.confidence;
+                const className = det.class_id === 0 ? 'Moderada' : 'Severa';
                 
                 // Converte as coordenadas para o tamanho do canvas
                 const scaleX = canvas.width / 256;
                 const scaleY = canvas.height / 256;
                 
-                const x1 = box[0] * scaleX;
-                const y1 = box[1] * scaleY;
-                const x2 = box[2] * scaleX;
-                const y2 = box[3] * scaleY;
-                
-                const className = classId === 0 ? 'Moderada' : 'Severa';
+                const canvasX1 = x1 * scaleX;
+                const canvasY1 = y1 * scaleY;
+                const canvasX2 = x2 * scaleX;
+                const canvasY2 = y2 * scaleY;
                 
                 // Desenha a bounding box
-                ctx.strokeStyle = classId === 0 ? '#00ff00' : '#ff0000';
+                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
                 ctx.lineWidth = 2;
-                ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+                ctx.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1);
                 
                 // Desenha o rótulo
-                ctx.fillStyle = classId === 0 ? '#00ff00' : '#ff0000';
+                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
                 ctx.font = '12px Arial';
-                ctx.fillText(`${className} ${(confidence * 100).toFixed(1)}%`, x1, y1 - 5);
+                ctx.fillText(`${className} ${(confidence * 100).toFixed(1)}%`, canvasX1, canvasY1 - 5);
                 
-                // Se houver máscara de segmentação, desenha ela
+                // Se houver máscara, desenha ela
                 if (det.mask) {
-                    const maskData = det.mask;
                     const maskCanvas = document.createElement('canvas');
-                    maskCanvas.width = canvas.width;
-                    maskCanvas.height = canvas.height;
+                    maskCanvas.width = 256;
+                    maskCanvas.height = 256;
                     const maskCtx = maskCanvas.getContext('2d');
                     
-                    // Desenha a máscara com transparência
-                    const imageData = maskCtx.createImageData(canvas.width, canvas.height);
-                    for (let i = 0; i < maskData.length; i++) {
+                    // Cria a imagem da máscara
+                    const maskImageData = maskCtx.createImageData(256, 256);
+                    for (let i = 0; i < det.mask.length; i++) {
                         const idx = i * 4;
-                        const value = maskData[i] * 255;
-                        imageData.data[idx] = value;
-                        imageData.data[idx + 1] = value;
-                        imageData.data[idx + 2] = value;
-                        imageData.data[idx + 3] = value > 128 ? 128 : 0; // Transparência
+                        const value = det.mask[i] * 255;
+                        maskImageData.data[idx] = value;
+                        maskImageData.data[idx + 1] = value;
+                        maskImageData.data[idx + 2] = value;
+                        maskImageData.data[idx + 3] = value > 128 ? 128 : 0; // Transparência
                     }
                     
-                    maskCtx.putImageData(imageData, 0, 0);
-                    ctx.drawImage(maskCanvas, 0, 0);
+                    maskCtx.putImageData(maskImageData, 0, 0);
+                    
+                    // Desenha a máscara escalada para o tamanho do canvas
+                    ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
                 }
             });
         }
