@@ -311,37 +311,29 @@
                     
                     if (output0) {
                         const detections = [];
-                        const numDetections = output0.dims[1];
-                        const stride = output0.dims[2];
+                        const data = output0.data;
                         
-                        for (let i = 0; i < numDetections; i++) {
-                            const offset = i * stride;
+                        // Processa as detecções no formato correto
+                        for (let i = 0; i < data.length; i += 20) {
+                            const x1 = data[i];
+                            const y1 = data[i + 1];
+                            const x2 = data[i + 2];
+                            const y2 = data[i + 3];
+                            const confidence = data[i + 4];
+                            const classId = Math.round(data[i + 5]);
                             
-                            // Normaliza as coordenadas para 0-1
-                            const x1 = output0.data[offset] / 256;
-                            const y1 = output0.data[offset + 1] / 256;
-                            const x2 = output0.data[offset + 2] / 256;
-                            const y2 = output0.data[offset + 3] / 256;
-                            
-                            // Normaliza a confiança para 0-1
-                            const confidence = output0.data[offset + 4] / 100;
-                            const classId = Math.round(output0.data[offset + 5]);
-                            
-                            // Filtra detecções válidas
-                            if (confidence > 0.25 && // confiança mínima
-                                x2 > x1 && y2 > y1 && // box válida
-                                x1 >= 0 && y1 >= 0 && // dentro dos limites
-                                x2 <= 1 && y2 <= 1) {
-                                
+                            // Verifica se é uma detecção válida
+                            if (confidence > 0.2 && x2 > x1 && y2 > y1) {
                                 const detection = {
                                     bbox: [x1, y1, x2, y2],
-                                    class_id: classId,
-                                    confidence: confidence
+                                    confidence: confidence,
+                                    class_id: classId
                                 };
                                 
                                 // Adiciona a máscara se disponível
-                                if (output1 && output1.dims[1] === numDetections) {
-                                    const maskOffset = i * 256 * 256;
+                                if (output1 && output1.data) {
+                                    const maskIndex = Math.floor(i / 20);
+                                    const maskOffset = maskIndex * 256 * 256;
                                     detection.mask = Array.from(output1.data.slice(maskOffset, maskOffset + 256 * 256));
                                 }
                                 
@@ -376,11 +368,14 @@
                 const confidence = det.confidence;
                 const className = det.class_id === 0 ? 'Moderada' : 'Severa';
                 
-                // Converte as coordenadas normalizadas para o tamanho do canvas
-                const canvasX1 = x1 * canvas.width;
-                const canvasY1 = y1 * canvas.height;
-                const canvasX2 = x2 * canvas.width;
-                const canvasY2 = y2 * canvas.height;
+                // Ajusta as coordenadas para o tamanho do canvas
+                const scaleX = canvas.width / 256;
+                const scaleY = canvas.height / 256;
+                
+                const canvasX1 = x1 * scaleX;
+                const canvasY1 = y1 * scaleY;
+                const canvasX2 = x2 * scaleX;
+                const canvasY2 = y2 * scaleY;
                 
                 // Desenha a máscara primeiro (se existir)
                 if (det.mask && det.mask.length === 256 * 256) {
@@ -392,13 +387,13 @@
                     const maskImageData = maskCtx.createImageData(256, 256);
                     for (let i = 0; i < det.mask.length; i++) {
                         const value = det.mask[i];
-                        if (value > 0.2) { // threshold da máscara
+                        if (value > 0.3) { // Aumentei o threshold para melhor visualização
                             const idx = i * 4;
-                            const color = det.class_id === 0 ? [0, 255, 0, 128] : [255, 0, 0, 128];
+                            const color = det.class_id === 0 ? [0, 255, 0] : [255, 0, 0];
                             maskImageData.data[idx] = color[0];
                             maskImageData.data[idx + 1] = color[1];
                             maskImageData.data[idx + 2] = color[2];
-                            maskImageData.data[idx + 3] = color[3];
+                            maskImageData.data[idx + 3] = 100; // Ajustei a transparência
                         }
                     }
                     
