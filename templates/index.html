@@ -260,8 +260,14 @@
         }
 
         async function preprocessImage(imageData) {
-            const tensor = new ort.Tensor('float32', new Float32Array(imageData.data), [1, 3, 256, 256]);
-            return tensor;
+            // Converter para RGB e normalizar
+            const data = new Float32Array(3 * 256 * 256);
+            for (let i = 0; i < imageData.data.length / 4; i++) {
+                data[i] = imageData.data[i * 4] / 255.0;                     // R
+                data[i + 256 * 256] = imageData.data[i * 4 + 1] / 255.0;    // G
+                data[i + 2 * 256 * 256] = imageData.data[i * 4 + 2] / 255.0; // B
+            }
+            return new ort.Tensor('float32', data, [1, 3, 256, 256]);
         }
 
         async function processFrame() {
@@ -275,13 +281,13 @@
                     tempCanvas.width = 256;
                     tempCanvas.height = 256;
                     const tempCtx = tempCanvas.getContext('2d');
-
+                    
                     const scale = Math.min(256 / video.videoWidth, 256 / video.videoHeight);
                     const width = video.videoWidth * scale;
                     const height = video.videoHeight * scale;
                     const x = (256 - width) / 2;
                     const y = (256 - height) / 2;
-
+                    
                     tempCtx.fillStyle = '#000';
                     tempCtx.fillRect(0, 0, 256, 256);
                     tempCtx.drawImage(video, x, y, width, height);
@@ -289,26 +295,35 @@
                     // Atualiza o canvas principal
                     ctx.clearRect(0, 0, canvas.width, canvas.height);
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
+                    
                     // Prepara os dados para o modelo
                     const imageData = tempCtx.getImageData(0, 0, 256, 256);
                     const tensor = await preprocessImage(imageData);
-
+                    
                     // Executa a inferência
-                    const results = await session.run({ images: tensor });
+                    const feeds = { images: tensor };
+                    console.log('Executando inferência...', feeds);
+                    const results = await session.run(feeds);
+                    console.log('Resultados:', results);
 
                     // Processa os resultados
                     if (results && results.output) {
                         const detections = results.output;
-                        drawDetections(detections);
-
+                        console.log('Detecções:', detections);
+                        
                         // Atualiza estatísticas
-                        detectionCount.textContent = detections.length;
+                        detectionCount.textContent = detections.length || 0;
+                        
+                        // Desenha as detecções se houver
+                        if (detections.length > 0) {
+                            drawDetections(detections);
+                        }
+                        
                         const endTime = performance.now();
                         const processTime = endTime - startTime;
                         processingBuffer.push(processTime);
                         processingTime.textContent = Math.round(processingBuffer.average());
-
+                        
                         // Atualiza FPS
                         frameCount++;
                         const now = Date.now();
@@ -338,19 +353,54 @@
 
         function drawDetections(detections) {
             detections.forEach(det => {
-                const [x1, y1, x2, y2] = det.bbox;
-                const confidence = det.confidence;
-                const className = det.class_id === 0 ? 'Moderada' : 'Severa';
-
+                // Extrai as coordenadas da bounding box e outros dados
+                const box = det.box || det.bbox;
+                const confidence = det.confidence || det.score;
+                const classId = det.class_id || det.label;
+                
+                // Converte as coordenadas para o tamanho do canvas
+                const scaleX = canvas.width / 256;
+                const scaleY = canvas.height / 256;
+                
+                const x1 = box[0] * scaleX;
+                const y1 = box[1] * scaleY;
+                const x2 = box[2] * scaleX;
+                const y2 = box[3] * scaleY;
+                
+                const className = classId === 0 ? 'Moderada' : 'Severa';
+                
                 // Desenha a bounding box
-                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.strokeStyle = classId === 0 ? '#00ff00' : '#ff0000';
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
-
+                
                 // Desenha o rótulo
-                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.fillStyle = classId === 0 ? '#00ff00' : '#ff0000';
                 ctx.font = '12px Arial';
                 ctx.fillText(`${className} ${(confidence * 100).toFixed(1)}%`, x1, y1 - 5);
+                
+                // Se houver máscara de segmentação, desenha ela
+                if (det.mask) {
+                    const maskData = det.mask;
+                    const maskCanvas = document.createElement('canvas');
+                    maskCanvas.width = canvas.width;
+                    maskCanvas.height = canvas.height;
+                    const maskCtx = maskCanvas.getContext('2d');
+                    
+                    // Desenha a máscara com transparência
+                    const imageData = maskCtx.createImageData(canvas.width, canvas.height);
+                    for (let i = 0; i < maskData.length; i++) {
+                        const idx = i * 4;
+                        const value = maskData[i] * 255;
+                        imageData.data[idx] = value;
+                        imageData.data[idx + 1] = value;
+                        imageData.data[idx + 2] = value;
+                        imageData.data[idx + 3] = value > 128 ? 128 : 0; // Transparência
+                    }
+                    
+                    maskCtx.putImageData(imageData, 0, 0);
+                    ctx.drawImage(maskCanvas, 0, 0);
+                }
             });
         }
 
