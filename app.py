@@ -15,7 +15,7 @@ try:
     if not os.path.exists(model_path):
         raise FileNotFoundError(f"Modelo não encontrado em: {model_path}")
     model = YOLO(model_path)
-    print("Modelo YOLOv8 carregado com sucesso!")
+    print("Modelo YOLOv11 carregado com sucesso!")
 except Exception as e:
     print(f"Erro ao carregar o modelo: {str(e)}")
     model = None
