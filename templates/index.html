@@ -244,6 +244,12 @@
         tempCanvas.height = 256;
         const tempCtx = tempCanvas.getContext('2d');
 
+        // Mapeamento de classes
+        const classNames = {
+            0: 'Moderada',
+            1: 'Severa'
+        };
+
         async function preprocessImage() {
             // Redimensiona para 256x256 no canvas temporário
             tempCtx.drawImage(video, 0, 0, 256, 256);
@@ -257,8 +263,14 @@
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ image: imageData })
+                    body: JSON.stringify({ 
+                        image: imageData
+                    })
                 });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 
                 const result = await response.json();
                 
@@ -283,7 +295,7 @@
                 }
                 
                 // Processa o frame
-                const imageData = preprocessImage();
+                const imageData = await preprocessImage();
                 const startTime = performance.now();
                 const detections = await detectObjects(imageData);
                 const endTime = performance.now();
@@ -329,10 +341,8 @@
             document.getElementById('detectionCount').textContent = detections.length;
 
             // Calcula a escala para ajustar as coordenadas ao tamanho do canvas
-            const videoWidth = video.videoWidth;
-            const videoHeight = video.videoHeight;
-            const scaleX = canvas.width / videoWidth;
-            const scaleY = canvas.height / videoHeight;
+            const scaleX = canvas.width / 256;
+            const scaleY = canvas.height / 256;
             
             // Desenha cada detecção
             detections.forEach(detection => {
@@ -378,13 +388,13 @@
                 ctx.lineWidth = 2;
                 ctx.strokeRect(x, y, width, height);
                 
-                // Desenha o score e a classe
-                ctx.fillStyle = '#00ff00';
-                ctx.font = 'bold 16px Arial';
+                // Prepara o texto com classe e confiança
+                const className = classNames[detection.class] || 'Desconhecida';
                 const score = Math.round(detection.confidence * 100);
-                const label = `${score}%`;
+                const label = `${className} ${score}%`;
                 
                 // Adiciona um fundo escuro para melhor legibilidade
+                ctx.font = 'bold 16px Arial';
                 const textWidth = ctx.measureText(label).width;
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                 ctx.fillRect(x, y - 25, textWidth + 10, 20);

@@ -22,9 +22,17 @@ except Exception as e:
     model = None
 
 def preprocess_image(image_data):
-    # Decodifica a imagem base64
-    image_data = image_data.split(',')[1]
-    image = Image.open(BytesIO(base64.b64decode(image_data)))
+    # Verifica se a string base64 tem o prefixo data:image
+    if 'data:image' in image_data:
+        # Decodifica a imagem base64
+        image_data = image_data.split(',')[1]
+    # Decodifica os dados base64 em bytes
+    image_bytes = base64.b64decode(image_data)
+    # Abre a imagem usando PIL
+    image = Image.open(BytesIO(image_bytes))
+    # Redimensiona para 256x256 se necessário
+    if image.size != (256, 256):
+        image = image.resize((256, 256))
     return image
 
 @app.route('/')
@@ -41,10 +49,14 @@ def detect():
         print("Iniciando detecção...")
         
         # Recebe a imagem do frontend
-        data = request.json
+        data = request.get_json()
         if not data or 'image' not in data:
             raise ValueError("Dados da imagem não fornecidos")
+            
+        # Extrai a string base64 da imagem
         image_data = data['image']
+        if isinstance(image_data, dict):
+            image_data = image_data.get('dataUrl', '')
         print("Imagem recebida com sucesso")
         
         # Verifica se o modelo foi carregado
@@ -112,6 +124,14 @@ def detect():
                     print(f"Erro ao processar máscara: {str(e)}")
                     mask_points = []
                 
+                # Adiciona o tipo da fissura
+                if cls == 0:
+                    fissure_type = "Horizontal"
+                elif cls == 1:
+                    fissure_type = "Vertical"
+                else:
+                    fissure_type = "Desconhecido"
+                
                 final_detections.append({
                     'x': float(x1),
                     'y': float(y1),
@@ -119,7 +139,8 @@ def detect():
                     'height': float(y2 - y1),
                     'confidence': float(conf),
                     'class': int(cls),
-                    'mask_points': mask_points
+                    'mask_points': mask_points,
+                    'fissure_type': fissure_type
                 })
         
         print(f"Encontradas {len(final_detections)} detecções")
