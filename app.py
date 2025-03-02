@@ -2,8 +2,6 @@ from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import os
 import base64
-import numpy as np
-import cv2
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
