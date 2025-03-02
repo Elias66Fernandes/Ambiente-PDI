@@ -255,181 +255,143 @@
                 const response = await fetch('/detect', {
                     method: 'POST',
                     headers: {
-                        'Content-Type': 'application/json',
+                        'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({
-                        image: imageData
-                    })
+                    body: JSON.stringify({ image: imageData })
                 });
-
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                
+                const result = await response.json();
+                
+                if (result.error) {
+                    console.error('Erro na detecção:', result.error);
+                    return [];
                 }
-
-                const results = await response.json();
-                return results.detections;
+                
+                return result.detections || [];
             } catch (error) {
-                console.error('Erro na detecção:', error);
-                throw error;
+                console.error('Erro ao detectar objetos:', error);
+                return [];
             }
         }
 
         async function processFrame(now, metadata) {
-            if (!isProcessing) {
-                isProcessing = true;
-                const startTime = performance.now();
-                
-                try {
-                    // Limpa e desenha o frame atual
-                    ctx.clearRect(0, 0, canvas.width, canvas.height);
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-                    
-                    // Processa a imagem e envia para o backend
-                    const imageData = await preprocessImage();
-                    const detections = await detectObjects(imageData);
-                    
-                    // Desenha as detecções
-                    drawDetections(detections);
-                    
-                    // Atualiza métricas
-                    const endTime = performance.now();
-                    const processingTime = endTime - startTime;
-                    
-                    processingBuffer.push(processingTime);
-                    fpsBuffer.push(1000 / (now - lastFrameTime));
-                    lastFrameTime = now;
-                    
-                    // Atualiza a UI
-                    document.getElementById('processingTime').textContent = Math.round(processingBuffer.average());
-                    document.getElementById('fpsValue').textContent = Math.round(fpsBuffer.average());
-                    document.getElementById('detectionCount').textContent = detections.length;
-                    document.getElementById('statusText').textContent = 'Processando';
-                } catch (error) {
-                    console.error('Erro ao processar frame:', error);
-                    document.getElementById('statusText').textContent = 'Erro: ' + error.message;
+            try {
+                // Atualiza as dimensões do canvas para corresponder ao vídeo
+                if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
                 }
                 
-                isProcessing = false;
+                // Processa o frame
+                const imageData = preprocessImage();
+                const startTime = performance.now();
+                const detections = await detectObjects(imageData);
+                const endTime = performance.now();
+                
+                // Atualiza estatísticas
+                const processingTime = endTime - startTime;
+                processingBuffer.push(processingTime);
+                document.getElementById('processingTime').textContent = Math.round(processingBuffer.average());
+                
+                // Calcula FPS
+                if (lastFrameTime) {
+                    const fps = 1000 / (now - lastFrameTime);
+                    fpsBuffer.push(fps);
+                    document.getElementById('fpsValue').textContent = Math.round(fpsBuffer.average());
+                }
+                lastFrameTime = now;
+                
+                // Desenha as detecções
+                if (detections && detections.length > 0) {
+                    drawDetections(detections);
+                }
+                
+                // Atualiza status
+                document.getElementById('statusText').textContent = 'Detectando...';
+            } catch (error) {
+                console.error('Erro no processamento:', error);
+                document.getElementById('statusText').textContent = 'Erro: ' + error.message;
             }
             
             // Agenda o próximo frame
-            if ('requestVideoFrameCallback' in video) {
+            if (video.srcObject) {
                 video.requestVideoFrameCallback(processFrame);
-            } else {
-                requestAnimationFrame(() => processFrame(performance.now()));
             }
-        }
-
-        // Função para calcular IoU (Intersection over Union)
-        function calculateIoU(box1, box2) {
-            const [x1_1, y1_1, x2_1, y2_1] = box1;
-            const [x1_2, y1_2, x2_2, y2_2] = box2;
-            
-            const intersect_x1 = Math.max(x1_1, x1_2);
-            const intersect_y1 = Math.max(y1_1, y1_2);
-            const intersect_x2 = Math.min(x2_1, x2_2);
-            const intersect_y2 = Math.min(y2_1, y2_2);
-            
-            if (intersect_x2 < intersect_x1 || intersect_y2 < intersect_y1) {
-                return 0.0;
-            }
-            
-            const intersect_area = (intersect_x2 - intersect_x1) * (intersect_y2 - intersect_y1);
-            const box1_area = (x2_1 - x1_1) * (y2_1 - y1_1);
-            const box2_area = (x2_2 - x1_2) * (y2_2 - y1_2);
-            
-            return intersect_area / (box1_area + box2_area - intersect_area);
-        }
-
-        // Função para aplicar Non-Maximum Suppression
-        function applyNMS(detections, iouThreshold = 0.5) {
-            // Ordena as detecções por confiança (decrescente)
-            detections.sort((a, b) => b.confidence - a.confidence);
-            
-            const selected = [];
-            const suppressed = new Set();
-            
-            for (let i = 0; i < detections.length; i++) {
-                if (suppressed.has(i)) continue;
-                
-                selected.push(detections[i]);
-                
-                for (let j = i + 1; j < detections.length; j++) {
-                    if (suppressed.has(j)) continue;
-                    
-                    const iou = calculateIoU(detections[i].bbox, detections[j].bbox);
-                    if (iou >= iouThreshold) {
-                        suppressed.add(j);
-                    }
-                }
-            }
-            
-            return selected;
         }
 
         function drawDetections(detections) {
-            detections.forEach(det => {
-                const [x1, y1, x2, y2] = det.bbox;
-                const confidence = det.confidence;
-                const className = det.class_id === 0 ? 'Moderada' : 'Severa';
+            const ctx = canvas.getContext('2d');
+            
+            // Limpa o canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Atualiza o contador de detecções
+            document.getElementById('detectionCount').textContent = detections.length;
+
+            // Calcula a escala para ajustar as coordenadas ao tamanho do canvas
+            const videoWidth = video.videoWidth;
+            const videoHeight = video.videoHeight;
+            const scaleX = canvas.width / videoWidth;
+            const scaleY = canvas.height / videoHeight;
+            
+            // Desenha cada detecção
+            detections.forEach(detection => {
+                // Aplica a escala às coordenadas
+                const x = detection.x * scaleX;
+                const y = detection.y * scaleY;
+                const width = detection.width * scaleX;
+                const height = detection.height * scaleY;
                 
-                // Converte coordenadas para o tamanho do canvas
-                const scaleX = canvas.width / 256;
-                const scaleY = canvas.height / 256;
-                
-                const canvasX1 = x1 * scaleX;
-                const canvasY1 = y1 * scaleY;
-                const canvasX2 = x2 * scaleX;
-                const canvasY2 = y2 * scaleY;
-                
-                // Desenha a máscara primeiro (se existir)
-                if (det.mask && det.mask.length === 256 * 256) {
-                    const maskCanvas = document.createElement('canvas');
-                    maskCanvas.width = 256;
-                    maskCanvas.height = 256;
-                    const maskCtx = maskCanvas.getContext('2d');
+                // Desenha a máscara se disponível
+                if (detection.mask_points && detection.mask_points.length > 0) {
+                    ctx.save();
                     
-                    const maskImageData = maskCtx.createImageData(256, 256);
-                    for (let i = 0; i < det.mask.length; i++) {
-                        const value = det.mask[i];
-                        if (value > 0.5) { // Aumentei o threshold da máscara
-                            const idx = i * 4;
-                            const color = det.class_id === 0 ? [0, 255, 0] : [255, 0, 0];
-                            maskImageData.data[idx] = color[0];
-                            maskImageData.data[idx + 1] = color[1];
-                            maskImageData.data[idx + 2] = color[2];
-                            maskImageData.data[idx + 3] = 80;
-                        }
+                    // Configura o estilo da máscara
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+                    ctx.lineWidth = 2;
+                    
+                    // Desenha o caminho da máscara
+                    ctx.beginPath();
+                    const points = detection.mask_points;
+                    
+                    // Move para o primeiro ponto
+                    ctx.moveTo(points[0][0] * scaleX, points[0][1] * scaleY);
+                    
+                    // Desenha linhas para todos os outros pontos
+                    for (let i = 1; i < points.length; i++) {
+                        ctx.lineTo(points[i][0] * scaleX, points[i][1] * scaleY);
                     }
                     
-                    maskCtx.putImageData(maskImageData, 0, 0);
-                    ctx.drawImage(maskCanvas, 0, 0, canvas.width, canvas.height);
+                    // Fecha o caminho
+                    ctx.closePath();
+                    
+                    // Preenche e contorna a máscara
+                    ctx.fill();
+                    ctx.stroke();
+                    
+                    ctx.restore();
                 }
                 
                 // Desenha a bounding box
-                ctx.strokeStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
+                ctx.strokeStyle = '#00ff00';
                 ctx.lineWidth = 2;
-                ctx.strokeRect(canvasX1, canvasY1, canvasX2 - canvasX1, canvasY2 - canvasY1);
+                ctx.strokeRect(x, y, width, height);
                 
-                // Desenha o rótulo
-                const label = `${className} ${(confidence * 100).toFixed(1)}%`;
-                ctx.font = '12px Arial';
-                const textMetrics = ctx.measureText(label);
-                const textHeight = 14;
-                const padding = 2;
+                // Desenha o score e a classe
+                ctx.fillStyle = '#00ff00';
+                ctx.font = 'bold 16px Arial';
+                const score = Math.round(detection.confidence * 100);
+                const label = `${score}%`;
                 
-                // Fundo do texto
+                // Adiciona um fundo escuro para melhor legibilidade
+                const textWidth = ctx.measureText(label).width;
                 ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-                ctx.fillRect(
-                    canvasX1 - padding,
-                    canvasY1 - textHeight - padding,
-                    textMetrics.width + (padding * 2),
-                    textHeight + (padding * 2)
-                );
+                ctx.fillRect(x, y - 25, textWidth + 10, 20);
                 
-                // Texto
-                ctx.fillStyle = det.class_id === 0 ? '#00ff00' : '#ff0000';
-                ctx.fillText(label, canvasX1, canvasY1 - 2);
+                // Desenha o texto
+                ctx.fillStyle = '#00ff00';
+                ctx.fillText(label, x + 5, y - 10);
             });
         }
 

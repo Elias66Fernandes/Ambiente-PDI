@@ -2,6 +2,7 @@ from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
 import os
 import base64
+import numpy as np
 from io import BytesIO
 from PIL import Image
 from ultralytics import YOLO
@@ -57,7 +58,7 @@ def detect():
         
         # Executa a inferência
         print("Iniciando inferência...")
-        results = model.predict(image, conf=0.25)  # Ajuste o conf threshold conforme necessário
+        results = model.predict(image, conf=0.25, verbose=False)
         print("Inferência concluída")
         
         # Processa as detecções
@@ -67,15 +68,49 @@ def detect():
         # Pega o primeiro resultado (primeira imagem)
         result = results[0]
         
-        # Para segmentação, vamos pegar as máscaras e boxes
+        # Obtém as dimensões originais da imagem
+        orig_width, orig_height = image.size
+        
         if result.masks is not None:
-            for i, mask in enumerate(result.masks.data):
-                # Converte a máscara para o formato da imagem original
-                mask = mask.cpu().numpy()
+            # Converte as máscaras para o formato da imagem original
+            masks = result.masks.data.cpu().numpy()
+            boxes = result.boxes.data.cpu().numpy()
+            
+            for i, (mask, box) in enumerate(zip(masks, boxes)):
+                # Extrai as coordenadas da box e a confiança
+                x1, y1, x2, y2, conf, cls = box
                 
-                # Pega a bounding box correspondente
-                box = result.boxes.data[i]
-                x1, y1, x2, y2, conf, cls = box.cpu().numpy()
+                # Normaliza as coordenadas para a escala da imagem original
+                x1, x2 = x1.item(), x2.item()
+                y1, y2 = y1.item(), y2.item()
+                
+                # Processa a máscara
+                mask_points = []
+                try:
+                    # Encontra os contornos da máscara
+                    mask = (mask > 0.5).astype(np.uint8) * 255
+                    mask = Image.fromarray(mask)
+                    mask = mask.resize((orig_width, orig_height))
+                    mask = np.array(mask)
+                    
+                    # Converte a máscara em uma lista de pontos do contorno
+                    import cv2
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    
+                    if contours:
+                        # Pega o maior contorno
+                        contour = max(contours, key=cv2.contourArea)
+                        # Simplifica o contorno para reduzir o número de pontos
+                        epsilon = 0.005 * cv2.arcLength(contour, True)
+                        approx = cv2.approxPolyDP(contour, epsilon, True)
+                        
+                        # Converte para lista de pontos
+                        for point in approx:
+                            x, y = point[0]
+                            mask_points.append([float(x), float(y)])
+                except Exception as e:
+                    print(f"Erro ao processar máscara: {str(e)}")
+                    mask_points = []
                 
                 final_detections.append({
                     'x': float(x1),
@@ -84,7 +119,7 @@ def detect():
                     'height': float(y2 - y1),
                     'confidence': float(conf),
                     'class': int(cls),
-                    'mask': mask.tolist()  # Converte a máscara para lista para serialização JSON
+                    'mask_points': mask_points
                 })
         
         print(f"Encontradas {len(final_detections)} detecções")
