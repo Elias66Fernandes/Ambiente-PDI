@@ -102,24 +102,60 @@ def detect():
                     # Encontra os contornos da máscara
                     mask = (mask > 0.5).astype(np.uint8) * 255
                     mask = Image.fromarray(mask)
-                    mask = mask.resize((orig_width, orig_height))
+                    mask = mask.resize((orig_width, orig_height), Image.Resampling.LANCZOS)
                     mask = np.array(mask)
                     
-                    # Converte a máscara em uma lista de pontos do contorno
+                    # Aplica um pequeno blur para suavizar bordas
                     import cv2
-                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+                    mask = cv2.GaussianBlur(mask, (3,3), 0)
+                    
+                    # Encontra os contornos com mais detalhes
+                    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_TC89_L1)
                     
                     if contours:
                         # Pega o maior contorno
                         contour = max(contours, key=cv2.contourArea)
-                        # Simplifica o contorno para reduzir o número de pontos
-                        epsilon = 0.005 * cv2.arcLength(contour, True)
+                        
+                        # Suaviza o contorno
+                        epsilon = 0.001 * cv2.arcLength(contour, True)
                         approx = cv2.approxPolyDP(contour, epsilon, True)
                         
-                        # Converte para lista de pontos
-                        for point in approx:
-                            x, y = point[0]
-                            mask_points.append([float(x), float(y)])
+                        # Aplica spline para suavizar ainda mais
+                        if len(approx) > 2:
+                            # Converte para array numpy
+                            curve = approx.squeeze()
+                            
+                            # Fecha o contorno
+                            curve = np.vstack((curve, curve[0]))
+                            
+                            # Gera pontos interpolados
+                            t = np.arange(len(curve))
+                            ti = np.linspace(0, len(curve)-1, len(curve)*2)
+                            
+                            # Interpola x e y separadamente
+                            x = np.interp(ti, t, curve[:, 0])
+                            y = np.interp(ti, t, curve[:, 1])
+                            
+                            # Suaviza os pontos interpolados
+                            sigma = 1
+                            x = cv2.GaussianBlur(x.reshape(-1, 1), (1, 5), sigma).squeeze()
+                            y = cv2.GaussianBlur(y.reshape(-1, 1), (1, 5), sigma).squeeze()
+                            
+                            # Limita os pontos à bounding box
+                            x = np.clip(x, x1, x2)
+                            y = np.clip(y, y1, y2)
+                            
+                            # Converte para lista de pontos
+                            for i in range(len(x)):
+                                mask_points.append([float(x[i]), float(y[i])])
+                        else:
+                            # Se tiver poucos pontos, usa o contorno original
+                            for point in approx:
+                                x, y = point[0]
+                                # Limita os pontos à bounding box
+                                x = np.clip(x, x1, x2)
+                                y = np.clip(y, y1, y2)
+                                mask_points.append([float(x), float(y)])
                 except Exception as e:
                     print(f"Erro ao processar máscara: {str(e)}")
                     mask_points = []

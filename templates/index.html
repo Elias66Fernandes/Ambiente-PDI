@@ -356,10 +356,17 @@
                 if (detection.mask_points && detection.mask_points.length > 0) {
                     ctx.save();
                     
+                    // Cria um clipping path com a bounding box
+                    ctx.beginPath();
+                    ctx.rect(x, y, width, height);
+                    ctx.clip();
+                    
                     // Configura o estilo da máscara
-                    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
-                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-                    ctx.lineWidth = 2;
+                    ctx.fillStyle = 'rgba(255, 0, 0, 0.35)';
+                    ctx.strokeStyle = 'rgba(255, 0, 0, 0.9)';
+                    ctx.lineWidth = 1.5;
+                    ctx.lineJoin = 'round';
+                    ctx.lineCap = 'round';
                     
                     // Desenha o caminho da máscara
                     ctx.beginPath();
@@ -368,13 +375,35 @@
                     // Move para o primeiro ponto
                     ctx.moveTo(points[0][0] * scaleX, points[0][1] * scaleY);
                     
-                    // Desenha linhas para todos os outros pontos
-                    for (let i = 1; i < points.length; i++) {
-                        ctx.lineTo(points[i][0] * scaleX, points[i][1] * scaleY);
+                    // Desenha curvas suaves entre os pontos
+                    for (let i = 1; i < points.length - 2; i++) {
+                        const xc = (points[i][0] + points[i + 1][0]) / 2 * scaleX;
+                        const yc = (points[i][1] + points[i + 1][1]) / 2 * scaleY;
+                        const x = points[i][0] * scaleX;
+                        const y = points[i][1] * scaleY;
+                        ctx.quadraticCurveTo(x, y, xc, yc);
+                    }
+                    
+                    // Conecta os últimos pontos
+                    if (points.length > 2) {
+                        const last = points[points.length - 1];
+                        const secondLast = points[points.length - 2];
+                        ctx.quadraticCurveTo(
+                            secondLast[0] * scaleX,
+                            secondLast[1] * scaleY,
+                            last[0] * scaleX,
+                            last[1] * scaleY
+                        );
                     }
                     
                     // Fecha o caminho
                     ctx.closePath();
+                    
+                    // Aplica sombra suave
+                    ctx.shadowColor = 'rgba(255, 0, 0, 0.3)';
+                    ctx.shadowBlur = 5;
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
                     
                     // Preenche e contorna a máscara
                     ctx.fill();
