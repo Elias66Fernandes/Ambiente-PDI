@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Detecção de Fissuras</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -26,13 +27,182 @@
             transform: translateY(-5px);
         }
         .feature-icon {
-            font-size: 2.5rem;
             color: #0d6efd;
+            margin-right: 0.5rem;
+            font-size: 1.5rem;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        .card-title-wrapper {
+            display: flex;
+            align-items: center;
             margin-bottom: 1rem;
+        }
+        .github-link {
+            color: #0d6efd;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            margin-top: 0.5rem;
+        }
+        .github-link:hover {
+            text-decoration: underline;
+        }
+        .university-logo {
+            max-width: 200px;
+            width: 100%;
+            height: auto;
+            margin: 1rem auto;
+            display: block;
+        }
+        .logo-section {
+            background-color: white;
+            padding: 0.5rem 0;
+        }
+        .informacoes {
+            background-color: #f8f9fa;
+            padding: 4rem 0;
+        }
+        .team-section {
+            display: flex;
+            justify-content: space-between;
+            align-items: start;
+            gap: 3rem;
+        }
+        .team-container {
+            flex: 1;
+            background-color: #fff;
+            border-radius: 20px;
+            padding: 2rem;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.05);
+        }
+        .logo-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 2rem;
+            width: 550px;
+        }
+        .ufma-logo {
+            max-width: 550px;
+            height: auto;
+            width: 100%;
+        }
+        .team-title {
+            font-size: 2rem;
+            margin-bottom: 2rem;
+            color: #333;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 1rem;
+        }
+        .member-card {
+            display: flex;
+            align-items: center;
+            margin-bottom: 1.5rem;
+            padding: 0.5rem;
+            flex-wrap: wrap;
+        }
+        .member-photo {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            margin-right: 1.5rem;
+            object-fit: cover;
+        }
+        .member-info {
+            flex: 1;
+            min-width: 200px;
+        }
+        .member-info h3 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: #333;
+            font-weight: 600;
+        }
+        .member-info p {
+            margin: 0.25rem 0;
+            color: #666;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        .member-role {
+            text-align: right;
+            color: #666;
+            font-size: 0.9rem;
+            padding-left: 1rem;
+        }
+        @media (max-width: 576px) {
+            .member-card {
+                flex-direction: column;
+                text-align: center;
+                padding: 1rem;
+            }
+            .member-photo {
+                margin-right: 0;
+                margin-bottom: 1rem;
+            }
+            .member-info {
+                width: 100%;
+                margin-bottom: 0.5rem;
+            }
+            .member-role {
+                width: 100%;
+                text-align: center;
+                padding-left: 0;
+                margin-top: 0.5rem;
+            }
+        }
+        @media (min-width: 768px) {
+            .university-logo {
+                max-width: 700px;
+            }
+        }
+        @media (min-width: 1800px) {
+            .university-logo {
+                max-width: 1500px;
+            }
+        }
+        @media (max-width: 768px) {
+            .team-section {
+                flex-direction: column;
+                align-items: center;
+            }
+            .ufma-logo {
+                max-width: 200px;
+                margin-top: 2rem;
+            }
+        }
+        @media (max-width: 992px) {
+            .team-section {
+                flex-direction: column;
+                align-items: center;
+            }
+            .team-container {
+                width: 100%;
+                max-width: 600px;
+            }
+            .logo-container {
+                width: 100%;
+                max-width: 400px;
+                margin-bottom: 2rem;
+                order: -1;
+            }
+            .ufma-logo {
+                max-width: 250px;
+            }
         }
     </style>
 </head>
 <body>
+    <div class="logo-section">
+        <div class="container">
+            <div class="row justify-content-center">
+                <div class="col-8 col-md-8 col-lg-6">
+                    <img src="{{ url_for('static', filename='ecp-ufma-logo.png') }}" alt="ECP UFMA Logo" class="university-logo img-fluid">
+                </div>
+            </div>
+        </div>
+    </div>
     <div class="hero">
         <div class="container">
             <div class="row align-items-center">
@@ -49,23 +219,99 @@
         <div class="row g-4">
             <div class="col-md-4">
                 <div class="card feature-card shadow-sm p-4">
-                    <div class="feature-icon">📊</div>
-                    <h3 class="h5">Classificação Precisa</h3>
+                    <div class="card-title-wrapper">
+                        <i class="bi bi-graph-up feature-icon"></i>
+                        <h3 class="h5 mb-0">Classificação Precisa</h3>
+                    </div>
                     <p>Identifica e classifica fissuras em duas categorias: Moderadas e Severas com alta precisão.</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="card feature-card shadow-sm p-4">
-                    <div class="feature-icon">🔍</div>
-                    <h3 class="h5">Análise em Tempo Real</h3>
+                    <div class="card-title-wrapper">
+                        <i class="bi bi-search feature-icon"></i>
+                        <h3 class="h5 mb-0">Análise em Tempo Real</h3>
+                    </div>
                     <p>Processamento rápido e eficiente de imagens para resultados instantâneos.</p>
                 </div>
             </div>
             <div class="col-md-4">
                 <div class="card feature-card shadow-sm p-4">
-                    <div class="feature-icon">🤖</div>
-                    <h3 class="h5">IA Avançada</h3>
-                    <p>Utiliza modelos de deep learning estado-da-arte para segmentação precisa.</p>
+                    <div class="card-title-wrapper">
+                        <i class="bi bi-cpu feature-icon"></i>
+                        <h3 class="h5 mb-0">YOLOv11</h3>
+                    </div>
+                    <p>Utiliza modelos de deep learning em estado-da-arte para segmentação precisa.</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card feature-card shadow-sm p-4">
+                    <div class="card-title-wrapper">
+                        <i class="bi bi-github feature-icon"></i>
+                        <h3 class="h5 mb-0">GitHub</h3>
+                    </div>
+                    <p>Contribua com o projeto e veja o código-fonte!</p>
+                    <a href="https://github.com/Elias66Fernandes/Ambiente-PDI" target="_blank" class="github-link">
+                        Acessar repositório <i class="bi bi-box-arrow-up-right ms-1"></i>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="informacoes">
+        <div class="container">
+            <div class="team-section">
+                <div class="team-container">
+                    <h2 class="team-title">Desenvolvedores do Projeto</h2>
+                    
+                    <div class="member-card">
+                        <img src="{{ url_for('static', filename='haroldo.jpeg') }}" alt="Haroldo Gomes" class="member-photo">
+                        <div class="member-info">
+                            <h3>Haroldo Gomes</h3>
+                            <p>haroldo.gbf@ufma.br</p>
+                        </div>
+                        <div class="member-role">
+                            Orientador
+                        </div>
+                    </div>
+
+                    <div class="member-card">
+                        <img src="{{ url_for('static', filename='elias.jpeg') }}" alt="Elias Fernandes" class="member-photo">
+                        <div class="member-info">
+                            <h3>Elias Fernandes</h3>
+                            <p>francisco.elias@discente.ufma.br</p>
+                        </div>
+                        <div class="member-role">
+                            Aluno de Graduação
+                        </div>
+                    </div>
+
+                    <div class="member-card">
+                        <img src="{{ url_for('static', filename='rose.jpeg') }}" alt="Rosivânia Silva" class="member-photo">
+                        <div class="member-info">
+                            <h3>Rosivânia Silva</h3>
+                            <p>rs.viana@discente.ufma.br</p>
+                        </div>
+                        <div class="member-role">
+                            Aluno de Graduação
+                        </div>
+                    </div>
+
+                    <div class="member-card">
+                        <img src="{{ url_for('static', filename='indiano.jpeg') }}" alt="Emanoel" class="member-photo">
+                        <div class="member-info">
+                            <h3>Emanoel Silva</h3>
+                            <p>silva.emanoel@discente.ufma.br</p>
+                        </div>
+                        <div class="member-role">
+                            Aluno de Graduação
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="logo-container">
+                    <img src="{{ url_for('static', filename='ufma-logo.png') }}" alt="UFMA Logo" class="ufma-logo">
                 </div>
             </div>
         </div>
@@ -74,7 +320,7 @@
     <footer class="bg-light py-4 mt-auto">
         <div class="container">
             <div class="text-center">
-                <p class="mb-0">© 2024 Sistema de Detecção de Fissuras. Todos os direitos reservados.</p>
+                <p class="mb-0"> 2024 Sistema de Detecção de Fissuras. Todos os direitos reservados.</p>
             </div>
         </div>
     </footer>
