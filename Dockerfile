@@ -1,5 +1,5 @@
 # Usa a imagem oficial do Python
-FROM python:3.119
+FROM python:3.11.9
 
 # Instala bibliotecas necessárias para OpenCV e outras dependências
 RUN apt-get update && apt-get install -y libgl1-mesa-glx
