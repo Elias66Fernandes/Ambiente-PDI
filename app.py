@@ -70,7 +70,7 @@ def detect():
         
         # Executa a inferência
         print("Iniciando inferência...")
-        results = model.predict(image, conf=0.25, verbose=False)
+        results = model.predict(image, conf=0.55, verbose=False)
         print("Inferência concluída")
         
         # Processa as detecções
