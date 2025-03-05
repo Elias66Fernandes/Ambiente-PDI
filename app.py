@@ -162,11 +162,11 @@ def detect():
                 
                 # Adiciona o tipo da fissura
                 if cls == 0:
-                    fissure_type = "Horizontal"
+                    fissure_type = "Moderada"
                 elif cls == 1:
-                    fissure_type = "Vertical"
+                    fissure_type = "Severa"
                 else:
-                    fissure_type = "Desconhecido"
+                    fissure_type = "Negativa"
                 
                 final_detections.append({
                     'x': float(x1),

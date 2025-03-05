@@ -247,7 +247,8 @@
         // Mapeamento de classes
         const classNames = {
             0: 'Moderada',
-            1: 'Severa'
+            1: 'Severa',
+            2: 'Negativa'
         };
 
         async function preprocessImage() {
@@ -418,7 +419,7 @@
                 ctx.strokeRect(x, y, width, height);
                 
                 // Prepara o texto com classe e confiança
-                const className = classNames[detection.class] || 'Desconhecida';
+                const className = classNames[detection.class] || 'Negativa';
                 const score = Math.round(detection.confidence * 100);
                 const label = `${className} ${score}%`;
                 
